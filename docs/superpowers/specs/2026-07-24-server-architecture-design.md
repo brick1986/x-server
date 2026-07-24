@@ -36,24 +36,24 @@
 
 ### 3.1 技术栈清单
 
-| 层面 | 技术选型 | 具体版本 |
-| --- | --- | --- |
-| 运行环境 | **JDK 21 LTS** (Eclipse Temurin / Amazon Corretto) | JDK 21 (开启虚拟线程 `Virtual Threads`) |
-| Web 框架 | **Spring Boot 3.3.1** (Spring MVC) | — |
-| 网络通讯 | **混合模式**：HTTP 短连接 (Spring MVC) + WS 长连接 (Netty 4.1.111.Final) | Netty 4.1.111.Final |
-| 运行时/线程模型 | **虚拟线程池**：HTTP 请求由 Tomcat 内置虚拟线程处理；Netty 消息交付虚拟线程池 | — |
-| 数据库 | **MongoDB Driver 5.1.1** (Sync) + **Redisson 3.31.0** (Sync API, Spring Boot Starter) | MongoDB Driver 5.1.1 / Redisson 3.31.0 |
-| HTTP 协议 | HTTP POST + **Protobuf 3.25.3** Body | Protobuf 3.25.3 |
-| WebSocket 协议 | WebSocket + **Protobuf 3.25.3** 二进制帧（Unity 原生兼容） | Protobuf 3.25.3 |
-| 跨进程通信 | **gRPC 1.62.x+** + Protobuf 3.25.3（仅契约定义，菜鸟期不部署） | gRPC 1.62.x+ |
-| 构建与客户端 | Maven 多模块 + Unity (C# Protobuf) | — |
+| 层面 | 技术选型 |
+| --- | --- |
+| 运行环境 | **JDK 21 LTS** (Eclipse Temurin / Amazon Corretto，开启虚拟线程 `Virtual Threads`) |
+| Web 框架 | **Spring Boot 3.3.1** (Spring MVC) |
+| 网络通讯 | **混合模式**：HTTP 短连接 (Spring MVC) + WS 长连接 (Netty **4.1.111.Final**) |
+| 运行时/线程模型 | **虚拟线程池**：HTTP 请求由 Tomcat 内置虚拟线程处理；Netty 消息交付虚拟线程池 |
+| 数据库 | **MongoDB Driver 5.1.1** (Sync) + **Redisson 3.31.0** (Sync API, Spring Boot Starter) |
+| HTTP 协议 | HTTP POST + **Protobuf 3.25.3** Body |
+| WebSocket 协议 | WebSocket + **Protobuf 3.25.3** 二进制帧（Unity 原生兼容） |
+| 跨进程通信 | **gRPC 1.62.x+** + Protobuf 3.25.3（仅契约定义，菜鸟期不部署） |
+| 构建与客户端 | Maven 多模块 + Unity (C# Protobuf) |
 
 **开发纪律**：
 
 - **禁用 Reactive / 响应式链式表达（如 Mono/Flux）**。
 - 统一采用平铺直叙的**同步命令式编程**，IO 阻塞时由 JDK 21 虚拟线程挂起，兼顾开发体验与高吞吐。
 - **数据库连接池必须显式设限**（Redis: 100~200, Mongo: 50~100），禁止无上限分配。
-- **虚拟线程 Pinning 防护**：坚守 JDK 21 LTS，钉定 MongoDB Driver 5.1.1 / Redisson 3.31.0（官方声称虚拟线程兼容）。启动阶段必须通过 `-Djdk.tracePinnedThreads=full` 实际验证，若出现 Pinning 报告则优先升级驱动版本或寻找替代方案。载体线程池大小（`jdk.virtualThreadScheduler.maxPoolSize`）与数据库连接池上限需保持比例约束（载体线程 ≥ 连接池上限之和），避免连接池耗尽时虚拟线程批量阻塞。
+- **虚拟线程 Pinning 防护**：坚守 JDK 21 LTS，钉定 MongoDB Driver 5.1.1 / Redisson 3.31.0（官方声称虚拟线程兼容）。启动阶段必须通过 `-Djdk.tracePinnedThreads=full` 实际验证，若出现 Pinning 报告则优先升级驱动版本或寻找替代方案。载体线程池大小（`jdk.virtualThreadScheduler.maxPoolSize`）与数据库连接池上限需保持比例约束——例如 Redis 连接池 128 + Mongo 连接池 100 = 总 228，则载体线程池至少 ≥ 228（通过 JVM 启动参数 `-Djdk.virtualThreadScheduler.maxPoolSize=256` 设置），避免连接池耗尽时虚拟线程批量阻塞。
 
 ---
 
@@ -162,7 +162,7 @@ Redis 权威 + 标脏 + 异步落 Mongo + 关键操作日志兜底。规避 Mong
 
 | # | 决策项 | 结论 |
 | --- | --- | --- |
-| 1 | **运行时/线程模型** | **Spring Boot 3 + JDK 21 虚拟线程**，摒弃 Reactive，全面采用同步命令式代码 |
+| 1 | **运行时/线程模型** | **Spring Boot 3.3.1 + JDK 21 虚拟线程**，摒弃 Reactive，全面采用同步命令式代码 |
 | 2 | **网络架构** | **HTTP (MVC) + WS (原生 Netty) 混合分流**；玩法连 WS，平时走 HTTP |
 | 3 | **数据一致性** | Write-Behind + **Mongo Version 乐观锁条件更新** + 操作日志兜底 |
 | 4 | **会话机制** | 菜鸟期进程内管理，**15s Session 挂起防护闪断风暴**，`SessionManager` 接口留路 |
