@@ -31,23 +31,23 @@
 ## 3. 技术栈清单
 
 | 层面 | 技术 |
-|------|------|
-| 运行环境 | JDK 21 LTS |
-| 框架 | Spring Boot 3.x（WebFlux） |
-| 运行时/线程模型 | WebFlux + Netty（HTTP + WebSocket 共用，响应式、事件驱动） |
-| 数据库 | MongoDB（持久化镜像） + Redis（权威热数据层） |
+| --- | --- |
+| 运行环境 | JDK 21 LTS（开启虚拟线程 `Virtual Threads`） |
+| 框架 | Spring Boot 3.x（Spring MVC / Web） |
+| 运行时/线程模型 | Virtual Threads + Netty（HTTP/WS 网络层由轻量线程支撑，业务逻辑走虚拟线程） |
+| 数据库 | MongoDB（持久化镜像，Mongo Java Sync Driver） + Redis（权威热数据层，Jedis / Lettuce 同步模式） |
 | HTTP 协议 | HTTP POST + Protobuf |
 | WebSocket 协议 | WebSocket + Protobuf（二进制帧，Unity 原生兼容） |
 | 跨进程通信 | gRPC + Protobuf（仅契约定义，菜鸟期不部署） |
 | 构建 | Maven 多模块 |
 | 客户端 | Unity + C# Protobuf |
 
-纪律：**业务代码不准阻塞 reactor 线程**。所有 DB/外部调用一律走响应式链（`flatMap`/`subscribeOn`），MongoDB Reactive Driver + Lettuce 响应式 Redis。
+纪律：**禁止写 Reactive / 响应式链式代码（如 Mono/Flux）**。统一采用**直观的同步命令式**风格编写业务逻辑；IO 阻塞时由 JDK 21 虚拟线程自动挂起，不占用系统级 OS 线程，兼顾极佳的开发体验与高吞吐性能。
 
 ## 4. 通信层（三通道）
 
 | 通道 | 用途 | 形态 |
-|------|------|------|
+| --- | --- | --- |
 | HTTP 短连接 | 非实时操作（登录、数据读写、商城等） | POST + Protobuf body |
 | WebSocket 长连接 | 交互场景实时同步 | 二进制 Protobuf 帧，进出场景时建立/断开 |
 | gRPC | 跨进程同步调用 | Protobuf 契约预留，菜鸟期不启用 |
@@ -107,8 +107,8 @@ Redis 权威 + 标脏 + 异步落 Mongo + 关键操作日志兜底。规避 Mong
 ### 6.2 认证
 
 - **登录换 token**：账号校验通过 → 签发不透明 token 存 Redis（带 TTL）。
-- **HTTP 鉴权**：请求头带 token，filter 校验。
-- **WS 鉴权**：握手时带 token，握手 filter 校验，过了才接受 Channel。
+- **HTTP 鉴权**：请求头带 token，Filter 校验（支持直接使用传统 `ThreadLocal` / `MDC` 传递上下文）。
+- **WS 鉴权**：握手时带 token，握手 Filter 校验，过了才接受 Channel。
 - **token 失效**：踢人/封号直接删 Redis 中的 token。选不透明 token 而非 JWT，避免主动失效的黑名单复杂度。
 - **账号体系**：自有账号密码 + 第三方登录（微信/TapTap 等）两者都支持，以策略模式接不同 provider，仅 `auth` 模块内部差异，不影响架构。
 - **防重进**：同账号同时只允许一个在线连接，新连顶旧连。登录成功时查 Redis 旧 token 顶掉旧连接，属 `auth`/`session` 模块内部逻辑，不影响架构。
@@ -116,9 +116,9 @@ Redis 权威 + 标脏 + 异步落 Mongo + 关键操作日志兜底。规避 Mong
 ## 7. 非功能配套（菜鸟期最小集）
 
 | 项 | 方案 |
-|----|------|
+| --- | --- |
 | 配置 | `application.yml` + 环境变量，不引入配置中心 |
-| 日志 | Logback + 滚动文件 + 链路 ID（玩家ID入 MDC）；关键操作日志复用数据层那条 |
+| 日志 | Logback + 滚动文件 + 链路 ID（直接使用标准 `MDC`：`MDC.put("userId", ...)`）；关键操作日志复用数据层那条 |
 | 监控 | Spring Boot Actuator 暴露基础指标，菜鸟期看日志排障，不引 Prometheus/Grafana |
 | 定时任务 | Spring `@Scheduled`——落盘调度（扫 dirty 集合）必须 |
 | 热更 | 不做。Java 热更成本高、休闲游戏无需，停服发版即可 |
@@ -127,12 +127,12 @@ Redis 权威 + 标脏 + 异步落 Mongo + 关键操作日志兜底。规避 Mong
 ## 8. 架构层决策汇总
 
 | # | 决策项 | 结论 |
-|---|--------|------|
-| 1 | 运行时/线程模型 | 全 WebFlux + Netty，禁止阻塞 reactor 线程 |
+| --- | --- | --- |
+| 1 | 运行时/线程模型 | **Spring Boot 3 + JDK 21 虚拟线程（Virtual Threads）**，采用同步命令式编程，禁用响应式响应链 |
 | 2 | 数据一致性 | Write-Behind：Redis 权威 + 标脏 + 异步落 Mongo + 关键操作日志，规避 Mongo 事务 |
 | 3 | 跨进程通信 | 菜鸟期无跨进程；gRPC 仅 Protobuf 契约预留，不部署；Pub/Sub/Stream 砍掉 |
 | 4 | 会话与路由 | 菜鸟期进程内会话表，不做断线重连恢复，`SessionManager` 接口留路 |
-| 5 | 认证与安全 | 不透明 token 存 Redis；自有+第三方账号；防重进（模块内部逻辑） |
+| 5 | 认证与安全 | 不透明 token 存 Redis；自有+第三方账号；防重进（模块内部逻辑）；开箱即用 MDC 追踪 |
 | 6 | 拆进程触发标准 | 容量驱动 + 有状态优先，到 3000 瓶颈时先拆有状态场景模块 |
 | 7 | 非功能配套 | 最小集：yml 配置、Logback、Actuator、@Scheduled 落盘；不做热更 |
 
