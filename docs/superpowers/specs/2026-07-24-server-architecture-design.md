@@ -56,6 +56,7 @@
 - **虚拟线程 Pinning 防护（JDK 25 + JEP 491 下的新形态）**：JDK 25 已含 [JEP 491](https://openjdk.org/jeps/491)，`synchronized` 不再 pin 虚拟线程，无需再把 `synchronized` 改写成 `ReentrantLock`。**注意 `-Djdk.tracePinnedThreads=full` 已在 JDK 24 起移除，设置无效，不再使用**。残留 Pinning 仅发生于 native 代码（FFM/JNI）回调 Java 并阻塞的场景——MongoDB Driver 5.x / Redisson 4.x 均为纯 Java，预期不触达。启动自检改为通过 **JFR `jdk.VirtualThreadPinned` 事件**监测上述残留场景，若出现则定位 native 调用点并评估替代方案。
 - **载体线程池与连接池比例约束**（防连接池耗尽，与 Pinning 无关）：载体线程池大小（`jdk.virtualThreadScheduler.maxPoolSize`）应 ≥ 各数据库连接池上限之和。例如 Redis 连接池 128 + Mongo 连接池 100 = 总 228，则载体线程池至少 ≥ 228（通过 JVM 启动参数 `-Djdk.virtualThreadScheduler.maxPoolSize=256` 设置），避免连接池耗尽时虚拟线程批量阻塞。
 - **Netty 版本统一 BOM 钉版**：Netty 会被 Redisson、gRPC-Java、Spring Boot 间接传递引入，多模块下极易版本漂移。统一通过 **Netty 4.1.x BOM** 在根 POM 钉定 `4.1.136.Final`，所有传递依赖归一，禁止子模块各自声明 Netty 版本。
+- **同玩家写串行化**：同一玩家的写操作必须在业务层串行（per-player 单工作虚拟线程或锁）。这是数据层覆盖写正确性的前提（见 4.2），也保护所有同玩家业务不变量。WS 按玩家串行投递消息，HTTP 按玩家排队写。
 
 ---
 
@@ -102,30 +103,36 @@ Redis 权威 + Redis 标脏 + **独立进程异步落 Mongo** + **业务侧磁�
 
 ### 4.1 数据组织
 
-- **玩家主档单文档聚合根**：货币、等级、基础信息、常用小计数放一个 MongoDB 文档，`updateOne` 带条件天然原子。
-- **背包/装备分文档**：每个物品一个文档，单文档条件更新。
-- **Redis 数据结构**：玩家数据按玩家级聚合存储（Hash/String），货币/库存等计数以 Redis 为权威。
-- **懒加载源**：登录仅载常用字段/货币到 Redis；背包等冷数据按需从 Redis 拉，Redis 未命中则从 Mongo 加载并回填 Redis（Redis 权威，Mongo 冷源）。
+**形态原则：Redis 与 MongoDB 同构（JSON），落盘零转换。**
+
+- **Redis 数据结构**：玩家数据按 key 拆分，每个 key 为一个 **String + JSON**（覆盖写粒度）：
+  - `player:{id}:profile` —— 主档聚合根（货币、等级、基础信息、常用小计数），一个 JSON。
+  - `player:{id}:bag` —— 背包，一个 JSON 数组。
+  - `player:{id}:equipment` —— 装备，一个 JSON（视玩法可选拆分）。
+  - 货币/库存等计数以 Redis 为权威。
+- **MongoDB 数据结构**：与 Redis key 一一对应的文档——`players` / `bags` / `equipments` 集合，每个玩家每类一个文档（`_id = 玩家ID`），文档体即 Redis 那份 JSON。**与 Redis 同构，落盘 = GET Redis JSON → upsert Mongo 文档，无重组**。留路：若背包膨胀逼近 Mongo 16MB 文档上限，再拆为每物品一文档（届时落盘需做"以 Redis 为准的整体同步：upsert 现有 + 删除多余"）。
+- **懒加载源**：登录仅载 `profile` 到 Redis；`bag`/`equipment` 按需从 Redis 拉，Redis 未命中则从 Mongo 加载并回填 Redis（Redis 权威，Mongo 冷源）。
 
 ### 4.2 写入流程与并发控制
 
-1. 写操作先到 Redis，**单 Key Lua 脚本原子执行**（改数据 + 标脏）。
-2. **跨玩家逻辑**：避免跨 Slot 的多 Key Lua（预防成熟期 Redis Cluster 报错）。采用单 Key 依次扣减/追加 + 业务补偿；中断恢复依赖业务日志对账补偿。
-3. 关键操作（扣费/合成/交易/充值/赠送）追加**业务侧详细日志**——磁盘 append-only 文件，**独立于 Redis 与 MongoDB**，先于返回客户端成功写盘。
+1. **覆盖写**：业务进程读 key 的 JSON → Java 内修改 → 构造完整新 JSON → 写回 Redis。写回用一个**极简 Lua**仅做 `SET key newjson; SADD dirty key`（**Lua 不解析 JSON**，只把"写数据 + 标脏"绑成一次原子往返）。标脏粒度**按 key 级**（见 4.3）。
+2. **同玩家写串行化（强制纪律）**：覆盖写是"读-改-写"发生在 Java 侧、非 Redis 原子，故**同一玩家的写操作必须在业务层串行**（per-player 单工作虚拟线程或锁），否则并发覆盖会丢更新（如两次扣费/充值互相覆盖）。此纪律同时保护所有同玩家业务不变量，不额外增加 Redis 侧 CAS。WS 侧按玩家串行投递消息，HTTP 侧按玩家排队写。
+3. **跨玩家操作（转账/交易）**：不做跨 Key Lua（预防成熟期 Redis Cluster 报错）。采用**两次独立覆盖写**（A key 一次、B key 一次），各自由双方玩家的串行约束保证单 key 正确；跨 key 不原子，**靠业务日志补偿**。写顺序：**先写业务日志（增量意图）→ 覆盖写 A → 覆盖写 B**，中途崩溃由恢复流程扫未完成日志按增量补偿。
+4. **业务日志（关键操作）**：扣费/合成/交易/充值/赠送等关键操作追加**业务侧详细日志**——磁盘 append-only 文件，**独立于 Redis 与 MongoDB**，先于返回客户端成功写盘。**日志记增量/意图**（如"A 扣 30、B 加 30"），**不记绝对 JSON 快照**——以便崩溃恢复对当前状态施加 delta、幂等重放，且服务于 Redis 异常重放兜底。
 
 ### 4.3 异步落盘（独立进程）
 
-- **落盘进程独立**：由**独立进程**（非业务进程）扫描 Redis dirty 集合，异步落地到 MongoDB。落盘进程是 MongoDB 的**唯一写者**，串行化天然防覆盖，故不引入版本号乐观锁。留路：若未来落盘多实例并行，需重新引入版本号或按玩家分片归并。
-- **标脏粒度按玩家级**：一个玩家一个 dirty 标记，落盘时主档 + 货币 + 背包一组 `bulkWrite`（主档 1 + 背包 N 文档，单文档各自条件更新，**非事务**）。
-- **落盘触发**：独立进程定时（1~3s）扫 dirty；玩家下线/被踢时业务进程通知落盘进程强刷一次，**强刷确认成功后才清 Redis**，失败则重试/告警并保留 Redis 数据，避免"Mongo 旧 + Redis 空 → 冷启动脏读"。
+- **落盘进程独立**：由**独立进程**（DBServer，非业务进程）扫描 Redis dirty 集合，异步落地到 MongoDB。落盘进程是 MongoDB 的**唯一写者**，串行化天然防覆盖，故不引入版本号乐观锁。留路：若未来落盘多实例并行，需重新引入版本号或按玩家分片归并。
+- **标脏粒度按 key 级**：dirty 集合成员为数据 key（如 `player:123:profile`），落盘进程 `SMEMBERS dirty` → 对每个 key `GET` JSON → upsert 对应 Mongo 文档 → 落盘成功后 `SREM`。改哪类落哪类，同玩家多个 dirty key 在同次扫描里合并 `bulkWrite`。
+- **落盘触发**：独立进程定时（1~3s）扫 dirty。**不做下线强刷**——玩家下线是业务进程本地事件，跨进程通知落盘进程强刷只省 1~3s 却引入跨进程调用，不值当；下线玩家数据等下一个落盘周期即可。停机场景的 dirty 全落由**落盘进程优雅停机流程**保证（见第 8 节）。
 - **上线冷启动**：Redis 无数据则从 Mongo 加载到 Redis（Redis 权威，Mongo 是冷源）。
-- **批量落盘**：跨玩家 dirty 合并为 `bulkWrite`，MongoDB Driver 5.9.0 原生支持，避免逐玩家 `updateOne` 的往返开销。
+- **批量落盘**：跨玩家 dirty key 合并为 `bulkWrite`，MongoDB Driver 5.9.0 原生支持，避免逐 key `updateOne` 的往返开销。
 
 ### 4.4 兜底与撤回项
 
 * **Redis 可靠性**：AOF `everysec` + 主从，接受秒级丢失窗口。
-* **业务日志**：磁盘 append-only，保留窗口（24~48h）+ 对账，用于 Redis 异常重放兜底与跨玩家操作中断补偿。**日志载体为磁盘文件，不落 Redis、不落 MongoDB**（避免与权威存储同命运）。
-* **撤回项**：❌ 不使用 Mongo 多文档事务；❌ Redis 不承担消息/会话职责；❌ 业务日志不写入 Redis/Mongo。
+* **业务日志**：磁盘 append-only，保留窗口（24~48h）+ 对账，用于 Redis 异常重放兜底与跨玩家操作中断补偿。**日志载体为磁盘文件，不落 Redis、不落 MongoDB**（避免与权威存储同命运）；记增量/意图，非快照。
+* **撤回项**：❌ 不使用 Mongo 多文档事务；❌ Redis 不承担消息/会话职责；❌ 业务日志不写入 Redis/Mongo；❌ 不做下线强刷。
 
 ---
 
