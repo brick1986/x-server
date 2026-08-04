@@ -53,11 +53,11 @@
 
 - **禁用 Reactive / 响应式链式表达（如 Mono/Flux）**。
 - 统一采用平铺直叙的**同步命令式编程**，IO 阻塞时由 JDK 25 虚拟线程挂起，兼顾开发体验与高吞吐。
-- **数据库连接池必须显式设限**（Redis: 100~200, Mongo: 50~100），禁止无上限分配。
+- **数据库连接池必须显式设限**（Redis: 100~200, Mongo: 50~100），禁止无上限分配。各池大小按**该池自身的峰值并发需求**定，不与载体线程池绑定。
 - **虚拟线程 Pinning 防护（JDK 25 + JEP 491 下的新形态）**：JDK 25 已含 [JEP 491](https://openjdk.org/jeps/491)，`synchronized` 不再 pin 虚拟线程，无需再把 `synchronized` 改写成 `ReentrantLock`。**注意 `-Djdk.tracePinnedThreads=full` 已在 JDK 24 起移除，设置无效，不再使用**。残留 Pinning 仅发生于 native 代码（FFM/JNI）回调 Java 并阻塞的场景——MongoDB Driver 5.x / Redisson 4.x 均为纯 Java，预期不触达。启动自检改为通过 **JFR `jdk.VirtualThreadPinned` 事件**监测上述残留场景，若出现则定位 native 调用点并评估替代方案。
-- **载体线程池与连接池比例约束**（防连接池耗尽，与 Pinning 无关）：载体线程池大小（`jdk.virtualThreadScheduler.maxPoolSize`）应 ≥ 各数据库连接池上限之和。例如 Redis 连接池 128 + Mongo 连接池 100 = 总 228，则载体线程池至少 ≥ 228（通过 JVM 启动参数 `-Djdk.virtualThreadScheduler.maxPoolSize=256` 设置），避免连接池耗尽时虚拟线程批量阻塞。
+- **连接池与载体线程池配比（禁嵌套获取）**：虚拟线程等连接时 park 释放载体，不占载体线程，"批量阻塞"为良性现象，**载体线程池无需大于各连接池上限之和**（该旧规则诊断错、方向反，已废止）。死锁的真实形态是"嵌套跨池获取"——一个虚拟线程持 A 池连接又去等 B 池连接，所有 B 连接都被同样持 A 的线程占着即死锁。防法为代码纪律：**一个虚拟线程绝不同时持有两个连接池的连接**，用完一个池的连接、归还后再取下一个池的。业务读写路径的 Redis `GET`/`SET` 与 Mongo `LOAD` 顺序执行、每步独立借还；落盘进程的 `GET` Redis 与 `bulkWrite` Mongo 两步分离，均不嵌套。载体线程池用 JDK 25 默认（基于 CPU 核数），不再通过 `maxPoolSize` 强行放大。
 - **Netty 版本统一 BOM 钉版**：Netty 会被 Redisson、gRPC-Java、Spring Boot 间接传递引入，多模块下极易版本漂移。统一通过 **Netty 4.1.x BOM** 在根 POM 钉定 `4.1.136.Final`，所有传递依赖归一，禁止子模块各自声明 Netty 版本。
-- **同玩家写串行化（Redisson 分布式锁）**：同一玩家的写操作必须跨进程串行，由 **Redisson 分布式锁 `lock:player:{id}`** 保证（per-player 粒度，覆盖该玩家所有 key 的读-改-写，守护跨 key 业务不变量）。这是数据层覆盖写正确性的前提（见 4.2），也是无状态 HTTP 横向扩展下不依赖 sticky 路由的关键。**看门狗续约上界**：Redisson 默认看门狗无限续约，进程挂死（长 GC/死循环/native 卡住）会导致锁被无限持有（锁毒），阻塞该玩家所有写。必须自定义看门狗的**最大持有时长/最大续约次数**，超限停止续约让 TTL 自然释放。
+- **同玩家写串行化（Redisson 分布式锁，按实体分锁）**：同一实体的写操作必须跨进程串行，由 **Redisson 分布式锁 `lock:{entity}:{id}`** 保证（按实体粒度，覆盖该实体所有 key 的读-改-写，守护跨 key 业务不变量）。`lock:player:{id}` 管玩家私有数据（profile/bag/equipment，同玩家大多只操作自己数据，天然低竞争）；`lock:guild:{id}` 管工会等公共实体（竞争真正发生处）；后续新增实体按同规则 `lock:{entity}:{id}` 分配。这是数据层覆盖写正确性的前提（见 4.2），也是无状态 HTTP 横向扩展下不依赖 sticky 路由的关键。**锁租约固定 `leaseTime=10s`、禁用看门狗**：加锁一律传固定租约、不使用 Redisson 默认无限续约——正常操作（<100ms）主动 `unlock` 立即释放，操作超 10s 则锁 TTL 自然到期释放，进程卡死时锁最迟 10s 自愈、**无锁毒**（替代原"看门狗续约上界"方案，该方案停止续约会静默破串行不变量，已废止）。**提交门控**：覆盖写唯一提交点（`SET + SADD` Lua）执行前强制 `isHeldByCurrentThread()` 校验，失锁即抛异常 abort、绝不带着失效锁完成写（fail-fast）。`isHeld` 检查到 Lua 执行间的微 TOCTOU 窗口仅灾难点触发、菜鸟期接受；成熟期升级路径为 Lua token 门控（锁 token 传 Lua 原子校验后才提交），届时再评估。**跨实体加锁**：同时触玩家数据 + 公共数据（如玩家向工会捐献）时按**全局类型优先级**依次加锁防死锁（菜鸟期 `guild > player`）；同类型内（如两玩家转账）按 ID 序加锁（`lock:player:{min}` + `lock:player:{max}`）。
 
 ---
 
@@ -87,13 +87,13 @@ Redis 权威 + Redis 标脏 + **独立进程异步落 Mongo** + **业务侧磁�
   - `player:{id}:equipment` —— 装备，一个 JSON（视玩法可选拆分）。
   - 货币/库存等计数以 Redis 为权威。
 - **MongoDB 数据结构**：与 Redis key 一一对应的文档——`players` / `bags` / `equipments` 集合，每个玩家每类一个文档（`_id = 玩家ID`），文档体即 Redis 那份 JSON。**与 Redis 同构，落盘 = GET Redis JSON → upsert Mongo 文档，无重组**。留路：若背包膨胀逼近 Mongo 16MB 文档上限，再拆为每物品一文档（届时落盘需做"以 Redis 为准的整体同步：upsert 现有 + 删除多余"）。
-- **懒加载源**：登录仅载 `profile` 到 Redis；`bag`/`equipment` 按需从 Redis 拉，Redis 未命中则从 Mongo 加载并回填 Redis（Redis 权威，Mongo 冷源）。
+- **懒加载源**：登录仅载 `profile` 到 Redis；`bag`/`equipment` 按需从 Redis 拉，Redis 未命中则从 Mongo 加载并回填 Redis（Redis 权威，Mongo 冷源）。**读路径持锁**：读操作同样获取 `lock:{entity}:{id}`（读写共用同一把互斥 `RLock`），锁内完成 `GET` → miss 则从 Mongo 加载 → **普通 `SET` 回填**（持锁期间无并发写，无需 `SET NX`）→ 释放。回填进锁是消除丢失更新竞态的关键——否则不持锁回填会把持锁写的 v2 覆盖回从 Mongo 读到的 v1，污染 Redis 后再被落盘进程写回 Mongo，数据彻底丢失。
 
 ### 4.2 写入流程与并发控制
 
-1. **覆盖写**：业务进程读 key 的 JSON → Java 内修改 → 构造完整新 JSON → 写回 Redis。写回用一个**极简 Lua**仅做 `SET key newjson; SADD dirty key`（**Lua 不解析 JSON**，只把"写数据 + 标脏"绑成一次原子往返）。标脏粒度**按 key 级**（见 4.3）。
-2. **同玩家写串行化（Redisson 分布式锁）**：覆盖写是"读-改-写"发生在 Java 侧、非 Redis 原子，故**同一玩家的写操作必须跨进程串行**，否则并发覆盖会丢更新（如两次扣费/充值互相覆盖）。由 **Redisson 分布式锁 `lock:player:{id}`** 保证（per-player 粒度），这是无状态 HTTP 横扩、不依赖 sticky 路由的前提，也保护所有同玩家业务不变量，不额外增加 Redis 侧 CAS。看门狗续约需设上界防锁毒（见 §3.1）。
-3. **跨玩家操作（转账/交易）**：不做跨 Key Lua（预防成熟期 Redis Cluster 报错）。采用**按 ID 序加双锁**（如 `lock:player:{min(A,B)}` + `lock:player:{max(A,B)}`，按固定顺序加锁防死锁）持有期间完成**两次独立覆盖写**（A key 一次、B key 一次），各自由双方玩家的锁保证单 key 正确；双锁使正常路径下跨 key 一致。写顺序：**先写业务日志（增量 + before/after 绝对值）→ 覆盖写 A → 覆盖写 B**。**中途崩溃不做自动恢复**——持锁崩溃后锁由 TTL 自然释放，若已写 A 未写 B 留下的不一致，靠业务日志事后人工对账补偿（见 4.2.4、4.4）。不引入自动重放，避免重放机制本身的复杂度与 bug 风险。
+1. **覆盖写**：业务进程读 key 的 JSON → Java 内修改 → 构造完整新 JSON → 写回 Redis。写回用一个**极简 Lua**仅做 `SET key newjson; SADD dirty key`（**Lua 不解析 JSON**，只把"写数据 + 标脏"绑成一次原子往返）。标脏粒度**按 key 级**（见 4.3）。写路径读 key 时若 miss，须**在锁内从 Mongo 加载**再改（与读路径同源），不可假设 key 一定在 Redis。**提交门控**：执行提交 Lua 前强制 `isHeldByCurrentThread()` 校验，失锁即 abort、不写（见 §3.1）。
+2. **同实体写串行化（Redisson 分布式锁）**：覆盖写是"读-改-写"发生在 Java 侧、非 Redis 原子，故**同一实体的写操作必须跨进程串行**，否则并发覆盖会丢更新（如两次扣费/充值互相覆盖）。由 **Redisson 分布式锁 `lock:{entity}:{id}`** 保证（按实体粒度，读写共用同一把互斥 `RLock`），这是无状态 HTTP 横扩、不依赖 sticky 路由的前提，也保护所有同实体业务不变量，不额外增加 Redis 侧 CAS。锁租约固定 `leaseTime=10s`、禁用看门狗，提交前 `isHeld` 门控（见 §3.1）。
+3. **跨实体操作（转账/交易/工会捐献）**：不做跨 Key Lua（预防成熟期 Redis Cluster 报错）。**跨玩家**（同类型）采用**按 ID 序加双锁**（`lock:player:{min(A,B)}` + `lock:player:{max(A,B)}`，按固定顺序加锁防死锁）；**跨类型**（如玩家 + 工会）按**全局类型优先级**加锁（菜鸟期 `guild > player`，先加 guild 再加 player）。持锁期间完成**各实体的独立覆盖写**，各自由该实体锁保证单 key 正确，多锁使正常路径下跨 key 一致。写顺序：**先写业务日志（增量 + before/after 绝对值）→ 覆盖写 A → 覆盖写 B**。**中途崩溃不做自动恢复**——持锁崩溃后锁由 TTL 自然释放，若已写 A 未写 B 留下的不一致，靠业务日志事后人工对账补偿（见 4.2.4、4.4）。不引入自动重放，避免重放机制本身的复杂度与 bug 风险。
 4. **业务日志（关键操作，人工对账依据）**：扣费/合成/交易/充值/赠送等关键操作追加**业务侧详细日志**——磁盘 append-only 文件，**独立于 Redis 与 MongoDB**，先于返回客户端成功写盘。**日志定位为人工介入时的对账与补偿依据，不参与任何自动崩溃恢复**。每条记录 **增量 + before 绝对值 + after 绝对值**（如"A 扣 30，before 100，after 70"）——三者冗余便于人工核对，且**纯磁盘、不依赖 Redis 等第三方**，可独立离线审阅。不记整份 JSON 快照。
 
 ### 4.3 异步落盘（独立进程）
@@ -110,7 +110,7 @@ Redis 权威 + Redis 标脏 + **独立进程异步落 Mongo** + **业务侧磁�
 * **Redis 可靠性**：AOF `everysec` + 主从，接受秒级丢失窗口。
 * **崩溃恢复策略（不自动重放）**：崩溃后以 Redis 当前状态为准（AOF 秒级窗口内的丢失视为可接受），**不依据业务日志做自动重放/补偿**。持锁崩溃由 TTL 释放锁，跨玩家操作中途（已写 A 未写 B）的不一致**留待事后人工**依据业务日志对账补偿。
 * **业务日志**：磁盘 append-only，保留窗口（24~48h）+ 对账，定位为**人工对账与事后补偿依据**。**日志载体为磁盘文件，不落 Redis、不落 MongoDB**（避免与权威存储同命运）；记 增量 + before/after 绝对值，非快照。
-* **锁可用性**：Redis 故障导致锁不可用时，写操作**快速失败**而非静默继续（静默继续会丢更新），由上层重试或返回错误。
+* **锁可用性**：Redis 故障导致锁不可用时，写操作**快速失败**而非静默继续（静默继续会丢更新），由上层重试或返回错误。锁租约到期（操作超 10s）或提交门控 `isHeld` 校验失败时同样 fail-fast abort（见 §3.1）。
 * **撤回项**：❌ 不使用 Mongo 多文档事务；❌ Redis 不承担消息/会话职责；❌ 业务日志不写入 Redis/Mongo；❌ 不做下线强刷；❌ 不依据业务日志做自动崩溃恢复/重放。
 
 ---
@@ -148,7 +148,7 @@ WS 长连接的会话机制（进程内 Channel 映射、15s Grace Period 挂起
 | --- | --- | --- |
 | 1 | **运行时/线程模型** | **Spring Boot 4.1.0 + JDK 25 虚拟线程**（含 JEP 491），摒弃 Reactive，全面采用同步命令式代码 |
 | 2 | **网络架构** | 菜鸟期仅 **HTTP (MVC) 无状态横扩**；WS (原生 Netty) 实时玩法通道**随实时玩法延后**（见实时玩法文档） |
-| 3 | **数据一致性** | Write-Behind + **独立进程串行落 Mongo（唯一写者，免版本号）** + **Redisson 分布式锁 `lock:player:{id}` 保证同玩家写串行** + 业务侧磁盘日志（人工对账，不自动恢复） |
+| 3 | **数据一致性** | Write-Behind + **独立进程串行落 Mongo（唯一写者，免版本号）** + **Redisson 分布式锁 `lock:{entity}:{id}` 保证同实体读写串行（读路径回填进锁、写路径锁内 miss 加载）** + **固定 leaseTime 10s 无看门狗 + isHeld 提交门控** + **禁嵌套跨池获取** + 业务侧磁盘日志（人工对账，不自动恢复） |
 | 4 | **会话机制** | 菜鸟期仅 HTTP 鉴权（Redis token）；WS 会话/15s 挂起**随 WS 延后**（见实时玩法文档） |
 | 5 | **跨进程与演进** | 菜鸟期无跨进程，gRPC 契约预留；容量达 3000 时优先拆有状态场景进程；WS/实时玩法为独立里程碑 |
 | 6 | **非功能配套** | Actuator 监控 + Standard MDC 日志链路 + JFR `jdk.VirtualThreadPinned` 事件监测残留 Pinning |
@@ -159,6 +159,5 @@ WS 长连接的会话机制（进程内 Channel 映射、15s Grace Period 挂起
 
 - 模块清单与依赖规则（Modular Monolith 模块边界、facade 接口契约）。
 - **WS/实时玩法服务器（独立里程碑）**：已拆分至 [实时玩法（WS 长连接）设计](./2026-07-24-realtime-gameplay-ws-design.md)，含 Netty WS 服务器、场景/房间模型与路由、玩法状态机、会话与 15s 挂起、WS 部署形态。
-- **Redisson 分布式锁看门狗上界方案**：最大持有时长/续约次数的具体取值与超限释放策略。
 - **惊群效应防护**：业务进程崩溃后 3000+ 并发重连 + Redis 冷启动拉全量状态的渐进恢复流程设计。
 - **优雅停机流程**：正常停服时 in-flight 请求等待完成、WS 连接有序断开的具体流程。
