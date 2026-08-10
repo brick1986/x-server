@@ -28,6 +28,7 @@
 	<modules>
 		<module>game-contract</module>
 		<module>game-data</module>
+		<module>game-web</module>
 	</modules>
 
 	<dependencyManagement>
