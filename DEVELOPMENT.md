@@ -12,7 +12,7 @@
 | 4 | **MongoDB Community Edition** | 8.0+（Windows MSI） | spec 用 MongoDB Driver 5.9.0（Sync），兼容 Server 3.6+，8.0 没问题。MSI 装为服务。 |
 | 5 | **mongosh** | 随 MongoDB 安装包自带 | MongoDB Shell，验证连接用。 |
 | 6 | **Git** | 已有 | 仓库已是 git repo，无需再装。 |
-| 7 | **IntelliJ IDEA** | 2025.2+（Community 可，Ultimate 有 Spring 专项支持） | 可选，但 JDK 25 + Spring Boot 4.1 需较新版本。 |
+| 7 | **IntelliJ IDEA** | 2026.2.0.1（Community 可，Ultimate 有 Spring 专项支持）
 
 ### 装完验证
 
