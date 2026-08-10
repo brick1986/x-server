@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package brick.game.contract;
+
+option java_package = "io.github.brick.contract.game";
+option java_multiple_files = true;
+
+// 菜鸟期登录 wire 契约：客户端带 token，服务端回 ok + userId。
+message LoginRequest {
+  string token = 1;
+}
+
+message LoginResponse {
+  bool ok = 1;
+  int64 user_id = 2;
+}

@@ -25,6 +25,10 @@
 		<mongodb.version>5.9.0</mongodb.version>
 	</properties>
 
+	<modules>
+		<module>game-contract</module>
+	</modules>
+
 	<dependencyManagement>
 		<dependencies>
 			<!-- Netty 统一 BOM 钉版（spec §3.1）：覆盖被 Redisson/gRPC/Spring 传递引入的 Netty -->
