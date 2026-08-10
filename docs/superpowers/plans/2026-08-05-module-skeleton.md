@@ -287,14 +287,9 @@ class LoginContractTest {
 	</modules>
 ```
 
-- [ ] **Step 5: 运行测试，确认失败（proto 尚未生成）**
+- [ ] **Step 5: 先单独跑生成，确认 proto 流水线产出源码**
 
-Run: `./mvnw -pl game-contract -am test`
-Expected: 编译阶段 `LoginContractTest` 报 `cannot find symbol: class LoginRequest`（proto 生成产物尚未参与 test-compile，或插件 goal 未绑定）。记录报错，下一步确认插件执行。
-
-> 说明：ascopes `protobuf-maven-plugin` 默认绑定 `generate-sources` 阶段，生成的源码加入 `target/generated-sources/protobuf/java` 并参与主编译；test-compile 默认可见主编译产物。若 Step 5 报 `cannot find symbol`，先检查 `./mvnw -pl game-contract generate-sources` 后 `target/generated-sources` 是否有 `LoginRequest.java`，无则说明插件未执行——确认 `protobuf-maven-plugin` 在 `<plugins>`（非 pluginManagement）中已声明（Step 1 已声明）。
-
-- [ ] **Step 6: 先单独跑生成，确认 proto 流水线产出源码**
+> 说明：ascopes `protobuf-maven-plugin` 默认绑定 `generate-sources` 阶段，生成的源码加入 `target/generated-sources/protobuf/java` 并参与主编译；test-compile 默认可见主编译产物。代码生成是构建生命周期的一环，无法走「先写失败测试再红」的 TDD 节奏——故这里直接验证生成产物，再验证测试通过。
 
 Run: `./mvnw -pl game-contract -am generate-sources`
 Expected: BUILD SUCCESS，且 `game-contract/target/generated-sources/protobuf/java/io/github/brick/contract/game/LoginRequest.java` 存在。
@@ -305,12 +300,12 @@ ls game-contract/target/generated-sources/protobuf/java/io/github/brick/contract
 ```
 Expected: 输出含 `LoginRequest.java`、`LoginResponse.java`。
 
-- [ ] **Step 7: 运行测试，确认通过**
+- [ ] **Step 6: 运行测试，确认通过**
 
 Run: `./mvnw -pl game-contract -am test`
 Expected: BUILD SUCCESS，`LoginContractTest` 2 个测试 PASS。
 
-- [ ] **Step 8: 提交**
+- [ ] **Step 7: 提交**
 
 ```bash
 git add pom.xml game-contract/pom.xml game-contract/src
