@@ -58,13 +58,13 @@ game-dbserver        → game-data（仅此一项）
 
 落盘是 JSON 字节搬运，不感知 wire 协议。`game-contract`（proto 消息 + gRPC 契约）只被业务进程消费（HTTP Body Protobuf 序列化）。dbServer 与 `game-contract` 解耦，意味着 wire 协议演进不影响落盘进程。
 
-### 2.5 `game-data` 只放「POJO 无关」的数据原语 + 覆盖写模板
+### 2.5 `game-data` 只放「POJO 无关」的数据原语 + 锁作用域
 
 覆盖写编排（架构 spec §4.2.1：锁内读 → Java 改 → 提交 Lua + isHeld 门控 + miss 锁内加载）是所有业务域共用的「如何做一次正确覆盖写」设施，但其中的「改」一步是**业务逻辑**（扣道具、加货币），与具体实体 POJO 强耦合。
 
-因此 `game-data` 里的 `OverlayWriter` 只能是**类型参数化的模板/泛型工具**：提供锁 + `GET` + `CommitLua` + `DirtyLedger` 原语，外加一个 `<T> T get(key, Class<T>)` → 业务回调 `mutate` → 序列化回写的模板方法。业务域把自家 POJO 喂进去。
+`game-data` 对外暴露一个**锁作用域对象 `LockCtx`**（`store.lockAll(List<LockReq>)` → `AutoCloseable`），承载读与覆盖写：`ctx.get(key, Class<T>)` 锁内读 + miss 锁内加载回填，`ctx.put(key, pojo)` 锁内覆盖写（`isHeld` 门控 + 原子 Lua `SET+SADD`），`ctx.close()` 逆序放锁。业务逻辑在 `LockCtx` 块内以命令式平铺语句表达（`get` → `if/return` 判断 → `put`），不必塞进 `mutate` 回调；安全不变量（持锁断言、提交门控、原子提交、有序多锁 all-or-nothing、try-with-resources 放锁）由 `game-data` 在 `LockCtx` 内部闭环。详见 [Plan B 数据原语设计](./2026-08-11-game-data-primitives-design.md)。
 
-`game-data` **不认识任何业务实体**（不持有 `PlayerProfile`/`Bag` 等类）。domain POJO 集中托管还是分散到业务域，是业务域阶段的工程取向选择，本次不锁死。
+`game-data` **不认识任何业务实体**（不持有 `PlayerProfile`/`Bag` 等类）：`get`/`put` 全泛型 `<T>`，POJO 类由 `game-web` 传入，`game-data` 仅经 `JsonCodec` 反/序列化。domain POJO 集中托管还是分散到业务域，是业务域阶段的工程取向选择，本次不锁死。
 
 ### 2.6 `game-contract` 仅放 wire 侧 proto，不放 domain POJO
 
@@ -86,25 +86,29 @@ game-dbserver        → game-data（仅此一项）
 - gRPC service 定义（菜鸟期仅契约，不部署）。
 - **不放** domain POJO，不放业务逻辑。
 
-### 3.3 `game-data`（数据原语 + 编排模板）
+### 3.3 `game-data`（数据原语 + 锁作用域）
 
 ```
 io.github.brick.data
   store/     RedisStore        GET/SET/DEL JSON 字符串（连接池 100~200）
              MongoStore        upsert/bulkWrite JSON 文档（连接池 50~100）
-             DataKeys          key 命名常量 + entity→锁名映射
-  lock/      LockManager       lock:{entity}:{id}, leaseTime=10s 无看门狗,
-                                isHeld 门控, 跨实体顺序(guild>player / ID序)
-  overlay/   OverlayWriter<T>  泛型覆盖写模板(锁内 get→mutate→commit)
-             CommitLua         SET+SADD 原子脚本
-             DirtyLedger       SADD/SMEMBERS/SREM
+             DataKeys          key 命名常量 + entity→锁名映射 + key→(entity,id) 解析（供 LockCtx resolveLock）
+  lock/      LockScope         lockAll(List<LockReq>) → LockCtx；按全局类型优先级 + 同类型 ID 序排序 acquire，all-or-nothing
+             LockCtx           锁作用域(AutoCloseable)：get(锁内读+miss回填)/put(锁内覆盖写+isHeld门控+原子Lua)/close(逆序放锁)
+             LockReq           (entity, id) 记录
+             LockAcquireException  拿锁失败（回滚已持锁后抛）
+             LockLostException  put 时 isHeld 门控失锁抛
+  overlay/   CommitLua         SET+SADD 原子脚本（不解析 JSON）
+             DirtyLedger       SADD/SMEMBERS/SREM（落盘进程消费，见 Plan C）
   codec/     JsonCodec         POJO↔JSON 序列化工具（不持有任何实体类）
 ```
 
 - **连接池显式设限**：Redis 100~200、Mongo 50~100（架构 spec §3.1，禁止无上限）。
-- **禁嵌套跨池获取**：一个虚拟线程绝不同时持有两个连接池的连接（架构 spec §3.1）。
-- `OverlayWriter<T>` 是 POJO 无关的模板，业务域传入 `Class<T>` 与 mutate 回调。
+- **禁嵌套跨池获取**：一个虚拟线程绝不同时持有两个连接池的连接（架构 spec §3.1）。`ctx.get` 的 `GET` Redis（还）→ miss 则 `LOAD` Mongo（还）→ `SET` 回填（还），每步独立借还，天然不嵌套。
+- 锁租约固定 `leaseTime=10s`、**禁用看门狗**；`ctx.put` 执行 Lua 前 `isHeldByCurrentThread()` 门控，失锁抛 `LockLostException`（架构 spec §3.1/§4.2）。
+- `LockCtx` 的 `get`/`put` 全泛型 `<T>`，POJO 无关，业务域传入 `Class<T>` 与 POJO 实例。
 - `CommitLua` 仅做 `SET key newjson; SADD dirty key`，不解析 JSON（架构 spec §4.2.1）。
+- 锁作用域 `LockCtx` 须用 try-with-resources 包住，`close()` 逆序释放全部锁（异常路径也释放）。详见 [Plan B 数据原语设计](./2026-08-11-game-data-primitives-design.md)。
 
 ### 3.4 `game-web`（业务进程）
 
