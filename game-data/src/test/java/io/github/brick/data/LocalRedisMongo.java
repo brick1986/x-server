@@ -17,6 +17,9 @@ public abstract class LocalRedisMongo {
 
     protected static final String MONGO_DB = "game_test";
 
+    /** 可选 Redis 鉴权密码；非空时调用 setPassword，空则连无鉴权 Redis（CI/Memurai 默认）。 */
+    private static final String REDIS_TEST_PASSWORD = System.getenv("REDIS_TEST_PASSWORD");
+
     protected static RedissonClient redis;
     protected static MongoClient mongo;
 
@@ -27,7 +30,9 @@ public abstract class LocalRedisMongo {
                 .setAddress("redis://127.0.0.1:6379")
                 .setConnectionPoolSize(8)
                 .setConnectionMinimumIdleSize(8);
-        cfg.setPassword("111111");
+        if (REDIS_TEST_PASSWORD != null && !REDIS_TEST_PASSWORD.isEmpty()) {
+            cfg.setPassword(REDIS_TEST_PASSWORD);
+        }
         redis = Redisson.create(cfg);
         mongo = MongoClients.create("mongodb://localhost:27017");
     }
