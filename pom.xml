@@ -23,6 +23,7 @@
 		<netty.version>4.1.136.Final</netty.version>
 		<protobuf-java.version>4.34.1</protobuf-java.version>
 		<mongodb.version>5.9.0</mongodb.version>
+		<archunit.version>1.4.1</archunit.version>
 	</properties>
 
 	<modules>
@@ -70,6 +71,12 @@
 				<groupId>io.github.brick</groupId>
 				<artifactId>game-data</artifactId>
 				<version>${project.version}</version>
+			</dependency>
+			<!-- ArchUnit（依赖规则校验，非 Spring Boot 管理项） -->
+			<dependency>
+				<groupId>com.tngtech.archunit</groupId>
+				<artifactId>archunit-junit5</artifactId>
+				<version>${archunit.version}</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
