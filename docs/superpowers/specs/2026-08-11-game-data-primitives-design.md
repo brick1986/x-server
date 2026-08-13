@@ -151,10 +151,11 @@ codec/   JsonCodec         POJO↔JSON 序列化工具（不持有任何业务�
 ## 4. 异常与重试
 
 - **拿锁失败**：`lockAll` 抛 `LockAcquireException`，`game-web` handler 捕获后返回统一错误消息给客户端（不重试或由上层策略决定）。
-- **锁过期**：`ctx.get` 的持锁断言或 `ctx.put` 的提交门控失锁时，均抛 `LockLostException`。块内任意失锁点走同一条重试路径。
-  - `LockCtx` 块内若已 `bizLogger.log`（业务日志先于 `put` 写盘），该日志已落盘；`put` 抛出后，**禁止复用块内已 `get` 的旧 POJO 原地重试**——旧对象基于已被覆盖的 v2，用它再 `put` 会覆盖他者已写入的 v3，丢更新（并发修订 §2.2、§4.2）。
-  - **重试契约**：`LockLostException` 由 `game-web` handler 捕获后**整请求重试**——从 `lockAll` + `ctx.get` 重新开始，重新拿最新值、重新跑业务逻辑。`game-data` 不内置自动重试（自动重试会重复写业务日志、且业务逻辑可能非幂等）。
-- **业务逻辑异常**（如余额不足抛 `BizException`）：`put` 不执行，`LockCtx.close` 仍逆序放锁（try-with-resources 保证），锁不泄漏、不等待 TTL。
+- **锁过期**：`ctx.get` 的持锁断言或 `ctx.put` 的提交门控失锁时，均抛 `LockLostException`。按是否已发生部分提交，分两种处理：
+  - **单实体（块内至多一次 `put`）**：失锁时那次 `put` 的门控在 Lua 之前，失锁即不写，**无部分提交**——可安全**整请求重试**：重新 `lockAll` + 重新 `get` 拿最新值、重跑业务逻辑、重新 `put`。
+  - **多实体（块内多次 `put`）中间失锁**：已成功的 `put` 不可回滚，存在**部分提交**（如 `put(guildKey,g2)` 成功后 `put(playerKey,p2)` 失锁 → guild 已改、player 未改，业务不变量被破坏）。**禁止整请求重试**——重试会重新 `get` 到已生效的 g2、重跑业务逻辑对 g2 再叠一次（如贡献重复加），造成更严重不一致。按架构 spec §4.4「中途崩溃不自动恢复」原则：`game-data` 抛 `LockLostException`，`game-web` handler 捕获后**返回错误、不重试**，依赖先于 `put` 写盘的业务日志（§4.2.3）事后人工对账补偿。
+  - **重试契约共性**：无论哪种情况，**禁止复用块内已 `get` 的旧 POJO 原地重试**——旧对象基于可能已被覆盖的旧值，用它再 `put` 会覆盖他者已写入的新值，丢更新（并发修订 §2.2、§4.2）。允许的重试必须从 `lockAll` + `ctx.get` 重新开始。`game-data` 不内置自动重试（自动重试无法区分单/多实体、会重复写业务日志、且业务逻辑可能非幂等）。
+- **业务逻辑异常**（如余额不足抛 `BizException`）：`put` 不执行，`LockCtx.close` 仍逆序放锁（try-with-resources 保证），锁不泄漏、不等待 TTL。若块内多次 `put` 中间抛业务异常，已成功的 `put` 同样构成部分提交，按多实体部分提交处理（不重试、业务日志对账）。
 
 ## 5. 对象传递
 
@@ -166,6 +167,12 @@ codec/   JsonCodec         POJO↔JSON 序列化工具（不持有任何业务�
 - 业务 POJO 由 `game-web` 定义，`game-data` 不持有任何业务实体类（`get`/`put` 全泛型 `<T>`，`JsonCodec` 不 import 业务域包）。
 - POJO 形态（不可变 record 还是带 setter 的普通类）由业务域决定，`game-data` 不约束——`JsonCodec` 对 POJO 形态透明。
 - `ctx.put` 是覆盖写：传入的 POJO 即"完整新值"，`game-data` 不做字段级合并、不读旧值做 diff（架构 §4.2 覆盖写语义）。
+
+## 6.1 数据结构范围（菜鸟期只用 String+JSON）
+
+- 菜鸟期 Redis **只用 String 类型**：每个 key 是一个 `String + JSON`，`LockCtx` 的 `get`/`put` 即对应此覆盖写语义。背包（JSON 数组）、profile（JSON 对象）等均以 String+JSON 表达，所有数据结构在 Java 侧建模后整体序列化。
+- **不使用 Redis 侧 hash / sortedset / list**：它们是"Redis 侧增量操作 field/member"语义，与本 spec 的"覆盖写 + key 级标脏 + 整 key upsert 落盘"模型不兼容（标脏与落盘均以整 key 为单位）。
+- **留路（不实现）**：若未来出现 Redis 侧数据结构天然合适的场景（如排行榜用 sortedset），需另设计一条**非覆盖写路径**——其标脏/落盘/锁模型不能套用本 spec，须单独设计。菜鸟期不做、不预留 API。
 
 ## 7. 集成测试
 
@@ -181,6 +188,7 @@ codec/   JsonCodec         POJO↔JSON 序列化工具（不持有任何业务�
   8. **禁嵌套跨池**：`get` 的 miss 分支 `GET Redis → LOAD Mongo → SET Redis` 每步独立借还，验证不同时持有两池连接。
   9. **game-data 不认识业务实体**：ArchUnit/依赖检查禁止 `io.github.brick.data.*` 依赖业务域包。
   10. **resolveLock 命中本实体锁**：同类型多 id（持 `lock:player:1` + `lock:player:2`）时，人为让 `lock:player:1` 过期而 `lock:player:2` 仍持有，对 `player:1:*` key 调 `get`/`put` → 验证命中 `lock:player:1`（isHeld=false 抛 `LockLostException`），而非误取 `lock:player:2` 漏过门控。
+  11. **多实体部分提交不重试**：块内 `put(guildKey,g2)` 成功后 `put(playerKey,p2)` 失锁抛 `LockLostException` → 验证 guild 已落 g2、player 未改；handler 不重试（重试会重复加贡献）。单实体 `put` 失锁 → 验证可安全重试（那次未写、无部分提交）。
 
 ## 8. 不在本次范围
 
