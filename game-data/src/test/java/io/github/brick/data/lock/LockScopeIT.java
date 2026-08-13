@@ -56,7 +56,9 @@ class LockScopeIT extends LocalRedisMongo {
         assertThat(redis.getLock(DataKeys.lockKey("player", 1)).isLocked()).isFalse();
     }
 
-    // §7 用例 6：all-or-nothing——另一客户端长租占住 guild:7，使 lockAll 的首把 tryLock 失败 → 回滚 + 抛 LockAcquireException
+    // §7 用例 6：all-or-nothing——另一客户端长租占住排序后的**第二把**锁（player:1，priority 1），
+    // 使 lockAll 先成功 acquire guild:7，再尝试 player:1 失败 → 触发 rollback 释放已 acquired 的 guild:7。
+    // 断言：抛 LockAcquireException + guild:7 已被回滚释放（blocker 持 player:1 而非 guild:7）。
     @Test
     void lockAllRollsBackOnSecondFailure() {
         Config cfg = new Config();
@@ -68,14 +70,17 @@ class LockScopeIT extends LocalRedisMongo {
         }
         RedissonClient blocker = Redisson.create(cfg);
         try {
-            RLock held = blocker.getLock(DataKeys.lockKey("guild", 7));
+            RLock held = blocker.getLock(DataKeys.lockKey("player", 1));
             held.lock(30, java.util.concurrent.TimeUnit.SECONDS);
             try {
+                // 乱序传入，内部排序成 guild:7(优先级 0) → player:1(优先级 1)
                 assertThatThrownBy(() -> scope().lockAll(List.of(
-                        LockReq.of("guild", 7), LockReq.of("player", 1))))
+                        LockReq.of("player", 1), LockReq.of("guild", 7))))
                         .isInstanceOf(LockAcquireException.class);
-                // player:1（本应被回滚释放）未被占住
-                assertThat(redis.getLock(DataKeys.lockKey("player", 1)).isLocked()).isFalse();
+                // guild:7 已被回滚释放（lockAll 先成功 acquire、失败后 rollback 释放）
+                assertThat(redis.getLock(DataKeys.lockKey("guild", 7)).isLocked()).isFalse();
+                // player:1 仍被 blocker 持有（lockAll 未尝试到，或尝试失败未占用）
+                assertThat(redis.getLock(DataKeys.lockKey("player", 1)).isLocked()).isTrue();
             } finally {
                 held.unlock();
             }
