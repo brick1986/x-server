@@ -23,6 +23,7 @@
 		<netty.version>4.1.136.Final</netty.version>
 		<protobuf-java.version>4.34.1</protobuf-java.version>
 		<mongodb.version>5.9.0</mongodb.version>
+		<archunit.version>1.4.1</archunit.version>
 	</properties>
 
 	<modules>
@@ -71,6 +72,12 @@
 				<artifactId>game-data</artifactId>
 				<version>${project.version}</version>
 			</dependency>
+			<!-- ArchUnit（依赖规则校验，非 Spring Boot 管理项） -->
+			<dependency>
+				<groupId>com.tngtech.archunit</groupId>
+				<artifactId>archunit-junit5</artifactId>
+				<version>${archunit.version}</version>
+			</dependency>
 		</dependencies>
 	</dependencyManagement>
 
@@ -89,6 +96,24 @@
 							</path>
 						</annotationProcessorPaths>
 					</configuration>
+				</plugin>
+				<!-- maven-failsafe-plugin：执行 *IT.java 集成测试（§7 安全不变量），版本由 Spring Boot parent 钉版 -->
+				<plugin>
+					<groupId>org.apache.maven.plugins</groupId>
+					<artifactId>maven-failsafe-plugin</artifactId>
+					<configuration>
+						<includes>
+							<include>**/*IT.java</include>
+						</includes>
+					</configuration>
+					<executions>
+						<execution>
+							<goals>
+								<goal>integration-test</goal>
+								<goal>verify</goal>
+							</goals>
+						</execution>
+					</executions>
 				</plugin>
 			</plugins>
 		</pluginManagement>
