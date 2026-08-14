@@ -71,7 +71,6 @@ class LockCtxIT extends LocalRedisMongo {
     void putWhenLockLostThrowsAndRedisUnchanged() {
         RLock mockLock = org.mockito.Mockito.mock(RLock.class);
         org.mockito.Mockito.when(mockLock.isHeldByCurrentThread()).thenReturn(false);
-        org.mockito.Mockito.when(mockLock.getName()).thenReturn(DataKeys.lockKey("player", 1));
         LockCtx ctx = new RedissonLockCtx(
                 Map.of(DataKeys.lockKey("player", 1), mockLock), List.of(mockLock),
                 new RedisStore(redis), new MongoStore(mongo, MONGO_DB),
@@ -104,7 +103,6 @@ class LockCtxIT extends LocalRedisMongo {
     void singleEntityPutLostLockNoPartialCommit() {
         RLock mockLock = org.mockito.Mockito.mock(RLock.class);
         org.mockito.Mockito.when(mockLock.isHeldByCurrentThread()).thenReturn(false);
-        org.mockito.Mockito.when(mockLock.getName()).thenReturn(DataKeys.lockKey("player", 1));
         LockCtx ctx = new RedissonLockCtx(
                 Map.of(DataKeys.lockKey("player", 1), mockLock), List.of(mockLock),
                 new RedisStore(redis), new MongoStore(mongo, MONGO_DB),
@@ -112,5 +110,6 @@ class LockCtxIT extends LocalRedisMongo {
         assertThatThrownBy(() -> ctx.put(PROFILE, new Profile("x", 1)))
                 .isInstanceOf(LockLostException.class);
         assertThat(new RedisStore(redis).get(PROFILE)).isNull();
+        assertThat(new DirtyLedger(redis).members()).doesNotContain(PROFILE);
     }
 }

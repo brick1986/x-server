@@ -97,6 +97,24 @@
 						</annotationProcessorPaths>
 					</configuration>
 				</plugin>
+				<!-- maven-failsafe-plugin：执行 *IT.java 集成测试（§7 安全不变量），版本由 Spring Boot parent 钉版 -->
+				<plugin>
+					<groupId>org.apache.maven.plugins</groupId>
+					<artifactId>maven-failsafe-plugin</artifactId>
+					<configuration>
+						<includes>
+							<include>**/*IT.java</include>
+						</includes>
+					</configuration>
+					<executions>
+						<execution>
+							<goals>
+								<goal>integration-test</goal>
+								<goal>verify</goal>
+							</goals>
+						</execution>
+					</executions>
+				</plugin>
 			</plugins>
 		</pluginManagement>
 	</build>

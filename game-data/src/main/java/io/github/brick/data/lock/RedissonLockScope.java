@@ -19,8 +19,9 @@ import java.util.concurrent.TimeUnit;
  * Redisson 实现：按全局类型优先级 + 同类型 ID 序排序后依次 tryLock（固定租约，无看门狗），
  * all-or-nothing（primitives §2.1、§3.3，并发修订 §1.3）。
  *
- * <p>使用 {@code tryLock(waitMillis, leaseSeconds, SECONDS)}：带 leaseTime 时 Redisson 不会启动看门狗续约，
- * 锁在固定租约后自动释放；waitMillis 内未获取即 fail-fast 返回 false（架构 §4.4）。
+ * <p>使用 {@code tryLock(waitMillis, leaseSeconds * 1000L, MILLISECONDS)}：waitMillis 为毫秒（fail-fast，
+ * 架构 §4.4）；leaseSeconds 为秒，内部折算为毫秒；带 leaseTime 时 Redisson 不启动看门狗续约，
+ * 锁在固定 10s 租约后自动释放。
  */
 public final class RedissonLockScope implements LockScope {
 
