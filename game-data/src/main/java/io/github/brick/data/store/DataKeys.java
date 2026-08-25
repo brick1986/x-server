@@ -6,6 +6,10 @@ import java.util.List;
  * 数据 key 命名常量 + 解析。key 约定钉死为 {@code {entity}:{id}:{field}}（如
  * {@code player:123:profile}），锁名 {@code lock:{entity}:{id}}（架构 spec §3.1、§4.1，
  * 并发修订 §1.1，primitives §3.1）。本类是该约定的唯一来源，业务域不得自造违反约定的 key。
+ *
+ * <p>只提供**与实体无关**的组装与解析。不含 {@code playerProfile()} 一类便捷方法——
+ * {@code player}/{@code profile} 属业务词汇，放这里会让「game-data 不认识业务实体」
+ * （primitives §6）失守。业务侧用 {@link #key(String, long, String)} 或自建常量类。
  */
 public final class DataKeys {
 
@@ -15,14 +19,6 @@ public final class DataKeys {
 	/** 数据 key：{@code {entity}:{id}:{field}}。field 不得含 {@code :}。 */
 	public static String key(String entity, long id, String field) {
 		return entity + ":" + id + ":" + field;
-	}
-
-	public static String playerProfile(long playerId) {
-		return key("player", playerId, "profile");
-	}
-
-	public static String playerBag(long playerId) {
-		return key("player", playerId, "bag");
 	}
 
 	/** 分布式锁名：{@code lock:{entity}:{id}}。 */

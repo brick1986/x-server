@@ -3,3 +3,20 @@ spring:
     name: game-dbserver
   main:
     web-application-type: none
+
+# game-data 数据原语配置（可配项声明见 io.github.brick.data.config.DataProperties）。
+# ${VAR:default} —— 冒号后为未设环境变量时的兜底值。
+#
+# 本服务只消费 dirty 集合把数据下沉 Mongo，不加锁：未登记 EntityPriorities bean，
+# 故不装配 LockScope（见 DataAutoConfiguration），lock-* 配置对本服务无效、不必配。
+#
+# 注意：Redis 配置只认 game.data.*，spring.data.redis.* 在本模块静默无效。
+game:
+  data:
+    redis-address: ${REDIS_ADDRESS:redis://127.0.0.1:6379}
+    redis-password: ${REDIS_PASSWORD:}
+    redis-username: ${REDIS_USERNAME:}
+    redis-pool-size: ${REDIS_POOL_SIZE:100}      # 架构 §3.1 限定 100~200
+    mongo-uri: ${MONGO_URI:mongodb://localhost:27017}
+    mongo-db: ${MONGO_DB:game}
+    mongo-pool-size: ${MONGO_POOL_SIZE:100}      # 落盘侧写 Mongo 为主，取上限（50~100）

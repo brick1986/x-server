@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LockCtxIT extends LocalRedisMongo {
 
-    private static final String PROFILE = DataKeys.playerProfile(1);
+    private static final String PROFILE = DataKeys.key("player", 1, "profile");
 
     private record Profile(String name, int coin) {}
 
@@ -94,7 +94,7 @@ class LockCtxIT extends LocalRedisMongo {
         LockCtx ctx = new RedissonLockCtx(byName, List.of(l1, l2),
                 new RedisStore(redis), new MongoStore(mongo, MONGO_DB),
                 new CommitLua(redis), new JsonCodec());
-        assertThatThrownBy(() -> ctx.get(DataKeys.playerProfile(1), Profile.class))
+        assertThatThrownBy(() -> ctx.get(DataKeys.key("player", 1, "profile"), Profile.class))
                 .isInstanceOf(LockLostException.class);   // 命中 player:1 锁而非 player:2
     }
 

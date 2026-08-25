@@ -7,10 +7,8 @@ import io.github.brick.data.store.DataKeys;
 import io.github.brick.data.store.MongoStore;
 import io.github.brick.data.store.RedisStore;
 import org.junit.jupiter.api.Test;
-import org.redisson.Redisson;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
-import org.redisson.config.Config;
 
 import java.util.List;
 import java.util.Map;
@@ -61,14 +59,8 @@ class LockScopeIT extends LocalRedisMongo {
     // 断言：抛 LockAcquireException + guild:7 已被回滚释放（blocker 持 player:1 而非 guild:7）。
     @Test
     void lockAllRollsBackOnSecondFailure() {
-        Config cfg = new Config();
-        cfg.useSingleServer().setAddress("redis://127.0.0.1:6379")
-                .setConnectionPoolSize(4).setConnectionMinimumIdleSize(1);
-        String pwd = System.getenv("REDIS_TEST_PASSWORD");
-        if (pwd != null && !pwd.isEmpty()) {
-            cfg.setPassword(pwd);
-        }
-        RedissonClient blocker = Redisson.create(cfg);
+        // 另起一个客户端占锁；连接参数复用基类（读测试 yaml），避免在此重复硬编码地址/密码
+        RedissonClient blocker = newClient();
         try {
             RLock held = blocker.getLock(DataKeys.lockKey("player", 1));
             held.lock(30, java.util.concurrent.TimeUnit.SECONDS);

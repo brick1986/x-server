@@ -1,3 +1,21 @@
 spring:
   application:
     name: game-web
+
+# game-data 数据原语配置（可配项声明见 io.github.brick.data.config.DataProperties）。
+# ${VAR:default} —— 冒号后为未设环境变量时的兜底值：本地开发零配置即可跑，
+# 线上只改环境变量、不改代码重新打包；密码等敏感值不进 git。
+#
+# 注意：本模块自行创建 RedissonClient，绕开 redisson-spring-boot-starter，
+# 故 spring.data.redis.* 一族属性在此静默无效——Redis 配置只认 game.data.*。
+game:
+  data:
+    redis-address: ${REDIS_ADDRESS:redis://127.0.0.1:6379}
+    redis-password: ${REDIS_PASSWORD:}
+    redis-username: ${REDIS_USERNAME:}
+    redis-pool-size: ${REDIS_POOL_SIZE:100}      # 架构 §3.1 限定 100~200
+    mongo-uri: ${MONGO_URI:mongodb://localhost:27017}
+    mongo-db: ${MONGO_DB:game}
+    mongo-pool-size: ${MONGO_POOL_SIZE:50}       # 架构 §3.1 限定 50~100
+    lock-wait-millis: ${LOCK_WAIT_MILLIS:2000}   # 拿锁 fail-fast 等待上限
+    lock-lease-seconds: ${LOCK_LEASE_SECONDS:10} # 固定租约，无看门狗

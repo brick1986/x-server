@@ -31,3 +31,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### 本机集成测试配置（含 Redis 密码、本机端口）
+### 模板见同目录 application.yaml.example —— clone 后复制一份改成自己的
+game-data/src/test/resources/application.yaml
