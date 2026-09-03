@@ -1,6 +1,6 @@
 # x-server 架构总纲（Specs 总入口）
 
-> 本文档是 `docs/superpowers/specs/` 的**总架构文档与索引**：先给全局概览，再链接到各子模块文档。
+> 本文档是 `.superpowers/specs/` 的**总架构文档与索引**：先给全局概览，再链接到各子模块文档。
 > 权威细节一律见对应子文档，本文档只做导航与速览，不重复、不取代任何子文档内容。
 >
 > 阅读顺序建议：本文档 → [架构层设计](./2026-07-24-server-architecture-design.md) → 按需进入各子文档（见 [§9 阅读导航](#9-阅读导航)）。
@@ -18,7 +18,7 @@
 | [2026-08-05-module-breakdown-design.md](./2026-08-05-module-breakdown-design.md) | 2026-08-05 | 模块设计 | 已落地（模块骨架） | 菜鸟期 5 模块划分、职责、依赖规则（架构 §8 待定项的基础设施部分） |
 | [2026-08-11-game-data-primitives-design.md](./2026-08-11-game-data-primitives-design.md) | 2026-08-11 | 模块内设计（Plan B） | 已实现（代码 + 集成测试已合并） | `game-data` 数据原语：LockScope / LockCtx / CommitLua / DirtyLedger / JsonCodec 对外 API 与内部规格 |
 
-> 执行计划（非 spec）位于 `docs/superpowers/plans/`：`2026-08-05-module-skeleton.md`、`2026-08-13-game-data-primitives.md`。specs 只放设计决策，plans 放落地步骤。
+> 执行计划（非 spec）位于 `.superpowers/plans/`：`2026-08-05-module-skeleton.md`、`2026-08-13-game-data-primitives.md`。specs 只放设计决策，plans 放落地步骤。
 
 ---
 

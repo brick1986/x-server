@@ -9,9 +9,9 @@
 **Tech Stack:** JDK 25、Spring Boot 4.1.0、Redisson 4.6.1（Sync API）、MongoDB Driver 5.9.0（Sync）、Jackson（Spring Boot 自带）、JUnit 5、AssertJ、Mockito、ArchUnit。
 
 **Spec:**
-- `docs/superpowers/specs/2026-08-11-game-data-primitives-design.md`（主，Plan B 数据原语设计）
-- `docs/superpowers/specs/2026-08-04-data-concurrency-fixes-design.md`（并发修订，已并入主 spec 与架构 spec §3.1）
-- `docs/superpowers/specs/2026-07-24-server-architecture-design.md` §3.1/§4（架构层）
+- `.superpowers/specs/2026-08-11-game-data-primitives-design.md`（主，Plan B 数据原语设计）
+- `.superpowers/specs/2026-08-04-data-concurrency-fixes-design.md`（并发修订，已并入主 spec 与架构 spec §3.1）
+- `.superpowers/specs/2026-07-24-server-architecture-design.md` §3.1/§4（架构层）
 
 ---
 
@@ -1894,7 +1894,7 @@ git commit -m "test(data): ArchUnit 强制 game-data 不依赖 web/contract/dbse
 
 ## Execution Handoff
 
-**Plan complete and saved to `docs/superpowers/plans/2026-08-13-game-data-primitives.md`.**
+**Plan complete and saved to `.superpowers/plans/2026-08-13-game-data-primitives.md`.**
 
 集成测试需本地预起 Redis（`redis://127.0.0.1:6379`）与 Mongo（`mongodb://localhost:27018`），按 `DEVELOPMENT.md` 预起；`redis-cli ping` 返回 PONG、`mongosh --eval "db.runCommand({ping:1})"` 返回 `{ ok: 1 }` 方可跑 `mvn -pl game-data test`。
 

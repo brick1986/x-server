@@ -176,7 +176,7 @@ codec/   JsonCodec         POJO↔JSON 序列化工具（不持有任何业务�
 
 ## 7. 集成测试
 
-- 连**本地预起**的 Redis（`localhost:6379`）与 Mongo（`localhost:27017`），不引 Testcontainers、不引嵌入式实现。开发者按 `DEVELOPMENT.md` 预起服务；CI 预装 Redis/Mongo。
+- 连**本地预起**的 Redis（`localhost:6379`）与 Mongo（`localhost:27018`），不引 Testcontainers、不引嵌入式实现。开发者按 `DEVELOPMENT.md` 预起服务；CI 预装 Redis/Mongo。
 - 必覆盖的正确性用例（对齐并发修订 spec）：
   1. **回填竞态 #2**：实例 A 持锁写 v2、实例 B 无锁路径尝试回填——验证不存在无锁回填路径（`get` 必须持锁，未持锁直接抛 `LockLostException`，绝不回填 SET）。
   2. **写路径 miss 加载**：冷 key 首次 `get` → 验证从 Mongo 加载并回填 Redis，再 `get` 命中。
