@@ -17,6 +17,6 @@ game:
     redis-password: ${REDIS_PASSWORD:}
     redis-username: ${REDIS_USERNAME:}
     redis-pool-size: ${REDIS_POOL_SIZE:100}      # 架构 §3.1 限定 100~200
-    mongo-uri: ${MONGO_URI:mongodb://localhost:27017}
+    mongo-uri: ${MONGO_URI:mongodb://localhost:27018}
     mongo-db: ${MONGO_DB:game}
     mongo-pool-size: ${MONGO_POOL_SIZE:100}      # 落盘侧写 Mongo 为主，取上限（50~100）

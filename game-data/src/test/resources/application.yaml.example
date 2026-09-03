@@ -20,5 +20,5 @@ game:
     redis-password: <你的 Redis 密码>
     # 仅 Redis 6+ ACL 需要，一般留空
     redis-username:
-    mongo-uri: mongodb://localhost:27017
+    mongo-uri: mongodb://localhost:27018
     mongo-db: game_test

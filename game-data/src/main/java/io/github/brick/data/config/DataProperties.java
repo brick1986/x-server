@@ -43,7 +43,7 @@ public class DataProperties {
     private int redisPoolSize = 100;
 
     @NotBlank
-    private String mongoUri = "mongodb://localhost:27017";
+    private String mongoUri = "mongodb://localhost:27018";
 
     @NotBlank
     private String mongoDb = "game";

@@ -70,7 +70,7 @@ public abstract class LocalRedisMongo {
 	@BeforeAll
 	static void startClients() {
 		redis = newClient(8);
-		mongo = MongoClients.create(prop("game.data.mongo-uri", "mongodb://localhost:27017"));
+		mongo = MongoClients.create(prop("game.data.mongo-uri", "mongodb://localhost:27018"));
 	}
 
 	/**

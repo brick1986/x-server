@@ -56,7 +56,7 @@ Redis/Mongo 的连接参数由 `game-data` 的 `DataProperties` 声明（`game.d
 | `REDIS_PASSWORD` | 空（不鉴权） | **本机 Redis 设了 `requirepass` 就必须设它** |
 | `REDIS_USERNAME` | 空 | 仅 Redis 6+ ACL 需要 |
 | `REDIS_POOL_SIZE` | 100 | 限定 100~200，越界启动失败 |
-| `MONGO_URI` | `mongodb://localhost:27017` | Mongo 连接串 |
+| `MONGO_URI` | `mongodb://localhost:27018` | Mongo 连接串 |
 | `MONGO_DB` | `game` | 库名 |
 | `MONGO_POOL_SIZE` | 50（dbserver 100） | 限定 50~100，越界启动失败 |
 | `LOCK_WAIT_MILLIS` | 2000 | 拿锁 fail-fast 等待上限（仅 game-web） |
@@ -92,7 +92,7 @@ game:
   data:
     redis-address: redis://127.0.0.1:6379
     redis-password: <你的 Redis 密码>   # 无鉴权则留空
-    mongo-uri: mongodb://localhost:27017
+    mongo-uri: mongodb://localhost:27018
     mongo-db: game_test
 ```
 
