@@ -44,7 +44,7 @@ SREM player:1:bag                 ← 把 v2 的脏标记一并删掉
 `dirty` 的消费改为**原子排空到私有 in-flight 集合**：
 
 ```
-Lua（一次往返，KEYS[1]=dirty, KEYS[2]=dirty:inflight）：
+Lua（一次往返，KEYS[1]={dirty}, KEYS[2]={dirty}:inflight）：
   if EXISTS inflight:                          -- 上轮未跑完（中断/崩溃）
       SUNIONSTORE dirty dirty inflight         -- 残留合回 dirty
       DEL inflight
@@ -52,6 +52,8 @@ Lua（一次往返，KEYS[1]=dirty, KEYS[2]=dirty:inflight）：
   RENAME dirty inflight                        -- 原子：dirty 立刻变空集
   return SMEMBERS inflight
 ```
+
+两个 key 名**自带 hash tag**（`{dirty}` / `{dirty}:inflight`），理由见 §2.5。
 
 排空后 `dirty` 立即是空集，落盘期间 `game-web` 的 `SADD dirty` 进的是**新一轮**的 `dirty`，与本轮 in-flight 快照物理隔离——§2.1 的窗口彻底消除。
 
@@ -82,9 +84,30 @@ Lua（一次往返，KEYS[1]=dirty, KEYS[2]=dirty:inflight）：
 
 反序则「`SREM` 后、`SADD` 前」崩溃会让失败 key 既不在 `inflight` 也不在 `dirty`，静默丢标记。按上述顺序，两步之间崩溃只会导致整片被下轮重放（`upsert` 幂等，无害）。
 
-### 2.5 留路：Redis Cluster 的 slot 约束
+### 2.5 key 名自带 hash tag
 
-`dirty` 与 `dirty:inflight` 在同一段 Lua 里操作，Cluster 模式要求二者同 slot。菜鸟期单机，不构成问题。**若未来上 Cluster**，把两个 key 名改为带 hash tag 的 `{dirty}` / `{dirty}:inflight` 即可（只改 `DirtyLedger` 的两个常量，`CommitLua` 引用同一常量自动跟随，无其他影响）。菜鸟期不改，符合架构 §1「代码留路、运行时从简」。
+`dirty` 与 `dirty:inflight` 在同一段 Lua 里操作，Redis Cluster 要求同一 Lua 的所有 KEYS 落在同一 slot，否则报 `CROSSSLOT`。故**现在就**把两个集合命名为：
+
+```
+DIRTY_SET    = "{dirty}"
+INFLIGHT_SET = "{dirty}:inflight"
+```
+
+Cluster 的 hash tag 规则是「取第一个 `{` 与随后 `}` 之间的子串算 slot」，故二者 tag 同为 `dirty`、必然同 slot。单机模式下 `{dirty}` 只是一个含花括号的普通 key 名，行为与 `dirty` 无差别。
+
+**为什么不留到将来改**：改动成本恒定（`DirtyLedger` 两个常量，`CommitLua` 引用同一常量自动跟随），但**遗漏成本随时间上升**——真上 Cluster 时这是一个只在运行时暴露、且只在落盘路径暴露的 `CROSSSLOT` 错误。现在改是一行，将来改是一次线上事故加一行。这不违反架构 §1「代码留路、运行时从简」：它没有引入任何运行时复杂度，只是把名字取对。
+
+**迁移**：本地开发/测试环境里已存在的旧 `dirty` 集合改名后会成为孤儿（不再被消费）。集成测试本就 `flushdb`，不受影响；手工环境需 `DEL dirty` 清理一次。`game-dbserver` 从未运行过，**不存在生产数据迁移问题**。
+
+#### 2.5.1 提交侧的 CROSSSLOT 是独立且更根本的障碍（本文不解决）
+
+hash tag 只消除了**落盘侧**（`{dirty}` ↔ `{dirty}:inflight`）的 slot 障碍。**提交侧仍有一个 hash tag 解决不了的**：`CommitLua` 的 KEYS 是 `(数据 key, dirty 集合)`，即 `player:123:profile` 与 `{dirty}` —— 二者在 Cluster 下必然不同 slot。
+
+它不能用 hash tag 修：给所有数据 key 加同一个 tag 会把全部数据挤进一个 slot，Cluster 就失去意义了。真正的解法是**按 slot 分片的多个 dirty 集合**（如 `{player:123}:dirty`，让脏标记与它标记的数据同 slot；落盘侧改为遍历分片），那会同时改动提交路径与落盘路径的协议。
+
+注意这与架构 §4.2「不做跨 Key Lua（预防成熟期 Redis Cluster 报错）」并不矛盾：那条针对的是**跨业务实体**的写（如转账同时改 A、B），而 `CommitLua` 的第二个 key 是基础设施用的脏标记集合，不是第二个业务实体。但从 CROSSSLOT 的角度，两者确实一样会报错——**架构 §4.2 的那句「预防 Cluster 报错」在 `CommitLua` 上并未实现兑现**。
+
+菜鸟期单机，不构成任何现实问题；此处仅记录该障碍的存在与形状，供成熟期上 Cluster 时评估。**本文不设计它**：它属于提交路径（`game-data` Plan B 已实现的部分），改动面远超落盘编排的范围。
 
 ## 3. 批量策略：全量快照 + 分片流水线
 
@@ -239,7 +262,7 @@ Actuator + Micrometer 指标（架构 §6 已钉定 Actuator，`game-dbserver` �
 | `ackInflight(Collection<String>)` | `SREM` inflight | 一片落盘完成（§2.4 第 2 步） |
 | `markAll(Collection<String>)` | `SADD` dirty | 失败 key 回写（§2.4 第 1 步） |
 
-新增常量 `INFLIGHT_SET = "dirty:inflight"`，与 `DIRTY_SET` 同为唯一来源。
+key 名同时按 §2.5 改定：`DIRTY_SET` 由 `"dirty"` 改为 `"{dirty}"`，新增 `INFLIGHT_SET = "{dirty}:inflight"`。二者与 `DIRTY_SET` 同为唯一来源（`CommitLua` 引用同一常量，自动跟随）。
 
 **`RedisStore`** — 新增 `mget(List<String>)` → `Map<String,String>`：用 `client.getBuckets(StringCodec.INSTANCE)` 一次往返取多 key。**必须与现有 `get`/`set` 保持同一个 `StringCodec`**，否则读到的是带引号的 JSON（现有类注释已记录该坑）。
 
