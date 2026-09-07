@@ -17,6 +17,7 @@
 | [2026-08-04-data-concurrency-fixes-design.md](./2026-08-04-data-concurrency-fixes-design.md) | 2026-08-04 | 修订文档 | 已并入实现（game-data 落地） | 修正架构层设计三处正确性问题：锁模型泛化 / 读写路径 / 并发池配比 / 看门狗去除 |
 | [2026-08-05-module-breakdown-design.md](./2026-08-05-module-breakdown-design.md) | 2026-08-05 | 模块设计 | 已落地（模块骨架） | 菜鸟期 5 模块划分、职责、依赖规则（架构 §8 待定项的基础设施部分） |
 | [2026-08-11-game-data-primitives-design.md](./2026-08-11-game-data-primitives-design.md) | 2026-08-11 | 模块内设计（Plan B） | 已实现（代码 + 集成测试已合并） | `game-data` 数据原语：LockScope / LockCtx / CommitLua / DirtyLedger / JsonCodec 对外 API 与内部规格 |
+| [2026-09-04-dbserver-flush-design.md](./2026-09-04-dbserver-flush-design.md) | 2026-09-04 | 模块内设计（Plan C 之一）；含对架构 §4.3 的修订 | ⏳ 待实现 | `game-dbserver` 落盘编排：dirty 消费协议 / 分片流水线 / 失败语义 / 单实例保证 / 优雅停机 |
 
 > 执行计划（非 spec）位于 `.superpowers/plans/`：`2026-08-05-module-skeleton.md`、`2026-08-13-game-data-primitives.md`。specs 只放设计决策，plans 放落地步骤。
 
@@ -99,7 +100,8 @@ game-data / game-contract → 不依赖任何业务模块
 | --- | --- | --- |
 | 模块骨架 | `game-parent` + 4 模块 POM、启动类、契约种子 | ✅ 已落地（plan: `2026-08-05-module-skeleton.md`） |
 | game-data 数据原语（Plan B） | LockScope/LockCtx/CommitLua/DirtyLedger/JsonCodec + 自动装配 + 11 个正确性集成测试 | ✅ 已实现并合并（plan: `2026-08-13-game-data-primitives.md`） |
-| Plan C（横切 + 落盘） | `game-web` 的 AuthFilter / BizLogger、`game-dbserver` 的 FlushOrchestrator / FlushScheduler / GracefulShutdown | ⏳ 待做（范围见 [原语设计 §8](./2026-08-11-game-data-primitives-design.md)） |
+| Plan C · 落盘编排 | `game-dbserver` 的 FlushOrchestrator / FlushScheduler / GracefulShutdown（+ `game-data` 的 DirtyLedger/RedisStore/MongoStore 三处扩展） | 📝 已设计、待实现（见 [落盘编排设计](./2026-09-04-dbserver-flush-design.md)） |
+| Plan C · web 横切 | `game-web` 的 AuthFilter / BizLogger | ⏳ 待设计（范围见 [原语设计 §8](./2026-08-11-game-data-primitives-design.md)） |
 | 业务域 | player / bag / equipment / shop 等 | ⏳ 待做（模块内部划分待单独讨论） |
 | 实时玩法 WS | Netty WS 长连接、场景/房间模型、会话挂起 | 🔒 独立里程碑，菜鸟期不落地（见 [实时玩法设计](./2026-07-24-realtime-gameplay-ws-design.md)） |
 
@@ -109,12 +111,15 @@ game-data / game-contract → 不依赖任何业务模块
 
 ```
 架构层设计 (2026-07-24) ──被修订──► 数据并发正确性修订 (2026-08-04)
-        │                                     │
-        ├─延伸─► 实时玩法 WS 设计 (2026-07-24)  └─落地于─► game-data 数据原语 (2026-08-11)
-        └─延伸─► 模块清单与依赖规则 (2026-08-05)            （Plan B，已实现）
+        │           │                         │
+        │           └──被修订(§4.3)──┐        └─落地于─► game-data 数据原语 (2026-08-11)
+        │                            │                   （Plan B，已实现）
+        ├─延伸─► 实时玩法 WS 设计      └────────► dbserver 落盘编排 (2026-09-04)
+        └─延伸─► 模块清单与依赖规则 (2026-08-05)          （Plan C，待实现）
 ```
 
 - **架构层设计**是唯一权威主文档；**并发正确性修订**对其三处问题（锁粒度、读写路径回填、看门狗/池配比）做了修订——阅读与落地时以修订文档为准。
+- **dbserver 落盘编排**修订架构 §4.3 的 dirty 消费协议：原「`SMEMBERS` → `GET` → upsert → `SREM`」存在会永久丢数据的丢标记窗口，改为「原子排空到 `dirty:inflight`」（其 §2.1 论证了原协议的缺陷）。触碰 dirty/落盘的代码以该文档为准。
 - **模块清单与依赖规则**落地架构 §8「模块清单与依赖规则」待定项（基础设施部分）。
 - **game-data 数据原语**是架构 §3.1/§4 与并发修订 §1~§4 在 `game-data` 层面的落地规格（Plan B）。
 - **实时玩法 WS 设计**复用架构层的数据层与认证体系，是独立里程碑。
@@ -128,7 +133,8 @@ game-data / game-contract → 不依赖任何业务模块
 | 快速了解项目 | 本文档 → [架构层设计](./2026-07-24-server-architecture-design.md) |
 | 理解模块边界与依赖规则 | [模块清单与依赖规则设计](./2026-08-05-module-breakdown-design.md) |
 | 改数据层 / 锁 / 落盘相关代码 | [并发正确性修订](./2026-08-04-data-concurrency-fixes-design.md) + [game-data 原语设计](./2026-08-11-game-data-primitives-design.md)（+ 对应 plan） |
-| 实现 Plan C（game-web 横切 / game-dbserver 落盘） | [模块设计 §3.4/§3.5](./2026-08-05-module-breakdown-design.md) + [原语设计 §8（范围）](./2026-08-11-game-data-primitives-design.md) |
+| 改落盘 / dirty 集合相关代码 | [落盘编排设计](./2026-09-04-dbserver-flush-design.md)（权威，含对架构 §4.3 的修订）+ [模块设计 §3.5](./2026-08-05-module-breakdown-design.md) |
+| 实现 Plan C 的 web 横切部分 | [模块设计 §3.4](./2026-08-05-module-breakdown-design.md) + [原语设计 §8（范围）](./2026-08-11-game-data-primitives-design.md) |
 | 了解实时玩法 | [实时玩法 WS 设计](./2026-07-24-realtime-gameplay-ws-design.md)（独立里程碑） |
 
 ---
