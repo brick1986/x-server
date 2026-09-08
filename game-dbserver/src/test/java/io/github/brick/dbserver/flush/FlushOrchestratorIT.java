@@ -19,8 +19,8 @@ class FlushOrchestratorIT extends LocalRedisMongo {
 
     private FlushOrchestrator orchestrator(int chunkSize) {
         return new FlushOrchestrator(
-                new DirtyLedger(redis), new RedisStore(redis),
-                new MongoStore(mongo, MONGO_DB), chunkSize);
+                redis, new DirtyLedger(redis), new RedisStore(redis),
+                new MongoStore(mongo, MONGO_DB), chunkSize, 60L);
     }
 
     @Test

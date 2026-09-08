@@ -76,6 +76,15 @@ Redis/Mongo 的连接参数由 `game-data` 的 `DataProperties` 声明（`game.d
 
 > **`spring.data.redis.*` 在本项目静默无效。** `game-data` 自行创建 `RedissonClient`，绕开了 redisson-spring-boot-starter，所以那一族属性配了不报错也不生效。Redis 配置只认 `game.data.*`。
 
+### 多实例
+
+`game-dbserver` **允许起多个实例**，多出的会作热备空转：每轮落盘前竞争 Redis 锁
+`lock:dbserver:flush`，抢不到就跳过本轮（DEBUG 日志，不是故障）。主实例进程硬崩后，
+备实例在租约（默认 60s）内自动接管。
+
+正确性由这把锁保证，**不依赖部署纪律**——这与架构 §2 放弃 sticky 路由时立下的原则一致：
+写正确性不押在运维正确配置上。
+
 ## 五、跑测试
 
 单元测试不需要外部服务：
