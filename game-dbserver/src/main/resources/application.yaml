@@ -20,3 +20,17 @@ game:
     mongo-uri: ${MONGO_URI:mongodb://localhost:27018}
     mongo-db: ${MONGO_DB:game}
     mongo-pool-size: ${MONGO_POOL_SIZE:100}      # 落盘侧写 Mongo 为主，取上限（50~100）
+  # 落盘编排配置（可配项声明见 io.github.brick.dbserver.config.DbServerProperties）。
+  # 范围由 @Min/@Max 在启动期强制，越界值使启动失败。
+  dbserver:
+    flush-interval-millis: ${FLUSH_INTERVAL_MILLIS:2000}     # 架构 §4.3 的 1~3s
+    chunk-size: ${FLUSH_CHUNK_SIZE:500}                      # 单片 key 数
+    lock-lease-seconds: ${FLUSH_LOCK_LEASE:60}               # 落盘锁租约，固定、无看门狗
+    shutdown-timeout-seconds: ${FLUSH_SHUTDOWN_TIMEOUT:20}   # 停机刷盘硬超时
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+

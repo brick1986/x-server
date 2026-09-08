@@ -25,6 +25,11 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter</artifactId>
 		</dependency>
+		<!-- Actuator：落盘指标（dirty 积压量、单轮耗时、失败 key 数）导出，架构 §6 -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
@@ -35,6 +40,15 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- game-data 的 test-jar：复用 LocalRedisMongo（连本地预起 Redis/Mongo 的 IT 基类）。
+		     跑本模块 IT 必须带 -am，否则 reactor 里没有这个制品：
+		         ./mvnw -pl game-dbserver -am verify -->
+		<dependency>
+			<groupId>io.github.brick</groupId>
+			<artifactId>game-data</artifactId>
+			<type>test-jar</type>
+			<scope>test</scope>
+		</dependency>
 	</dependencies>
 
 	<build>
@@ -42,6 +56,11 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<!-- 激活 failsafe：让 *IT.java 在 integration-test 阶段执行 -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-failsafe-plugin</artifactId>
 			</plugin>
 		</plugins>
 	</build>

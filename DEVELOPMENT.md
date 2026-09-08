@@ -62,6 +62,18 @@ Redis/Mongo 的连接参数由 `game-data` 的 `DataProperties` 声明（`game.d
 | `LOCK_WAIT_MILLIS` | 2000 | 拿锁 fail-fast 等待上限（仅 game-web） |
 | `LOCK_LEASE_SECONDS` | 10 | 固定租约、无看门狗（仅 game-web） |
 
+## 四之二、落盘配置（`game.dbserver.*`，仅 game-dbserver）
+
+由 `game-dbserver` 自己的 `DbServerProperties` 声明——落盘节奏是该进程的策略，不放进被两个
+进程共用的 `game-data`。范围由 `@Min`/`@Max` 在启动期强制，越界值使启动失败。
+
+| 环境变量 | 兜底值 | 范围 | 说明 |
+|---|---|---|---|
+| `FLUSH_INTERVAL_MILLIS` | 2000 | 500~60000 | 落盘轮次间隔（架构 §4.3 的 1~3s） |
+| `FLUSH_CHUNK_SIZE` | 500 | 1~5000 | 单片 key 数；内存峰值只与它有关，与积压总量无关 |
+| `FLUSH_LOCK_LEASE` | 60 | 10~600 | 落盘锁租约（秒），固定、无看门狗 |
+| `FLUSH_SHUTDOWN_TIMEOUT` | 20 | 1~120 | 停机刷盘硬超时（秒）；超时不丢数据，残留下次启动接着落 |
+
 > **`spring.data.redis.*` 在本项目静默无效。** `game-data` 自行创建 `RedissonClient`，绕开了 redisson-spring-boot-starter，所以那一族属性配了不报错也不生效。Redis 配置只认 `game.data.*`。
 
 ## 五、跑测试
