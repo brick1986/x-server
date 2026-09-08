@@ -1330,7 +1330,9 @@ public class FlushOrchestrator {
         return keys.size();
     }
 
-    private void flushChunk(List<String> chunk) {
+    /** 本片完整落盘处理。**受保护仅为可测**——「锁在片间过期/异常」的确定性测试
+     * 在子类里覆盖它（落盘 spec §5）；生产语义就是逐个分片处理。 */
+    protected void flushChunk(List<String> chunk) {
         Map<String, String> values = redis.mget(chunk);      // 一次往返；返回即还 Redis 连接
 
         // mget 不把不存在的 key 映射到 null，而是不放进 Map，故差值即 nil 数量。
@@ -1528,15 +1530,20 @@ class FlushLockIT extends LocalRedisMongo {
     @Test
     void lockIsReleasedEvenWhenTheRoundBlowsUp() {
         // Mongo 连接级异常会穿透 flushOnce（落盘 spec §4），锁仍须释放，
-        // 否则一次 Mongo 抖动会让落盘停摆到租约到期
+        // 否则一次 Mongo 抖动会让落盘停摆到租约到期。
+        // 用覆盖 flushChunk 抛异常的子类，确定性地制造「一轮中途爆炸」，
+        // 不依赖某版 Mongo 驱动对非法库名的校验行为。
         DirtyLedger d = new DirtyLedger(redis);
         new RedisStore(redis).set("player:1:profile", "{}");
         d.mark("player:1:profile");
 
         FlushOrchestrator broken = new FlushOrchestrator(
-                redis, d, new RedisStore(redis),
-                new MongoStore(mongo, " -illegal-db-name"),   // 触发驱动侧异常
-                500, 60L);
+                redis, d, new RedisStore(redis), new MongoStore(mongo, MONGO_DB), 500, 60L) {
+            @Override
+            protected void flushChunk(java.util.List<String> chunk) {
+                throw new IllegalStateException("mongo 抖了");
+            }
+        };
 
         assertThat(catchThrowable(broken::flushOnce)).isNotNull();
         assertThat(redis.getLock(FlushOrchestrator.FLUSH_LOCK).isLocked()).isFalse();
@@ -2601,7 +2608,7 @@ public class FlushMetrics {
 `flushChunk` 末尾改为返回统计（其余逻辑不变）：
 
 ```java
-    private ChunkStats flushChunk(List<String> chunk) {
+    protected ChunkStats flushChunk(List<String> chunk) {
         Map<String, String> values = redis.mget(chunk);
 
         int missing = chunk.size() - values.size();
