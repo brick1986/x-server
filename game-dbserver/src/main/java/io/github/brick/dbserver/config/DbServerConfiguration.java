@@ -4,6 +4,7 @@ import io.github.brick.data.overlay.DirtyLedger;
 import io.github.brick.data.store.MongoStore;
 import io.github.brick.data.store.RedisStore;
 import io.github.brick.dbserver.flush.FlushOrchestrator;
+import io.github.brick.dbserver.flush.FlushScheduler;
 import org.redisson.api.RedissonClient;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -27,5 +28,10 @@ public class DbServerConfiguration {
                                         RedisStore redis, MongoStore mongo, DbServerProperties p) {
         return new FlushOrchestrator(redisson, dirty, redis, mongo,
                 p.getChunkSize(), p.getLockLeaseSeconds());
+    }
+
+    @Bean
+    FlushScheduler flushScheduler(FlushOrchestrator orchestrator) {
+        return new FlushScheduler(orchestrator);
     }
 }
