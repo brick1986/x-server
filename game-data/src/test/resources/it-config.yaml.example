@@ -1,13 +1,14 @@
 # 集成测试（*IT.java）连接的本地服务配置 —— 模板。
 #
-# 【使用】把本文件复制成同目录的 application.yaml，改成你本机的实际值：
-#     cp application.yaml.example application.yaml
+# 【使用】把本文件复制成同目录的 it-config.yaml，改成你本机的实际值：
+#     cp it-config.yaml.example it-config.yaml
 #
-# application.yaml 已在 .gitignore 中（含密码，不入库）；本模板则纳入版本控制，
+# it-config.yaml 已在 .gitignore 中（含密码，不入库）；本模板则纳入版本控制，
 # 作为「有哪些可配项」的说明。新增配置项时记得同步更新本模板。
 #
-# 仅测试目录，不会打进 jar，与应用的 application.yaml 无 classpath 冲突。
-# 改本地环境（换端口、改密码）只改 application.yaml，不必设环境变量，
+# 刻意不叫 application.yaml：本文件随 test-jar 被 game-dbserver 的 IT 复用，
+# 同名会被那个模块自己的 src/main/resources/application.yaml 抢先命中。
+# 改本地环境（换端口、改密码）只改 it-config.yaml，不必设环境变量，
 # 更不要去改生产类 DataProperties 的默认值——那会把本机配置提交进 git，
 # 并在部署时忘设环境变量的情况下静默充当线上兜底。
 #

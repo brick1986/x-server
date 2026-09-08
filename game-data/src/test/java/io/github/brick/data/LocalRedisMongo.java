@@ -19,20 +19,24 @@ import java.util.List;
 /**
  * 集成测试基类：连本地预起的 Redis/Mongo，每用例 flush（primitives §7）。不引 Testcontainers。
  *
- * <p>连接参数读 {@code src/test/resources/application.yaml} 的 {@code game.data.*}——换端口、
+ * <p>连接参数读 {@code src/test/resources/it-config.yaml} 的 {@code game.data.*}——换端口、
  * 改密码只改那一个文件，不必设环境变量，更不必去改生产类 {@code DataProperties} 的默认值
  * （那会把本机配置和密码提交进 git，并在部署时充当线上兜底）。
  *
  * <p>该文件含本机密码，在 {@code .gitignore} 中，新 clone 的仓库里没有；
- * 复制同目录的 {@code application.yaml.example} 即可（缺失时本类会给出该提示）。
+ * 复制同目录的 {@code it-config.yaml.example} 即可（缺失时本类会给出该提示）。
  *
  * <p>本类是纯 JUnit、不启动 Spring 上下文（IT 保持轻量），故用 {@link YamlPropertySourceLoader}
  * 直接解析 yaml，而非依赖 {@code DataProperties} 的绑定机制。环境变量 {@code REDIS_TEST_PASSWORD}
  * 优先于 yaml，供 CI 注入而无需改文件。
+ *
+ * <p>配置文件刻意**不叫** {@code application.yaml}：本基类经 test-jar 被 {@code game-dbserver} 复用，
+ * 而那个模块自己有 {@code src/main/resources/application.yaml}。同名会被本模块 target/classes 抢先命中，
+ * 读到的是带 {@code ${VAR:default}} 占位符的应用配置——本类裸读 yaml、不解析占位符，会直接连接失败。
  */
 public abstract class LocalRedisMongo {
 
-	private static final String CONFIG_FILE = "application.yaml";
+	private static final String CONFIG_FILE = "it-config.yaml";
 
 	private static final PropertySource<?> PROPS = loadTestYaml();
 

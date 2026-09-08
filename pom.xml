@@ -72,6 +72,13 @@
 				<artifactId>game-data</artifactId>
 				<version>${project.version}</version>
 			</dependency>
+			<!-- game-data 的 test-jar：IT 基类（LocalRedisMongo）跨模块复用 -->
+			<dependency>
+				<groupId>io.github.brick</groupId>
+				<artifactId>game-data</artifactId>
+				<version>${project.version}</version>
+				<type>test-jar</type>
+			</dependency>
 			<!-- ArchUnit（依赖规则校验，非 Spring Boot 管理项） -->
 			<dependency>
 				<groupId>com.tngtech.archunit</groupId>

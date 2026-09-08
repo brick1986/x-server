@@ -32,7 +32,7 @@ public class DataProperties {
      *
      * <p><b>此处不设默认密码。</b>默认值会进 git，且会在部署时忘设环境变量的情况下静默充当
      * 线上兜底——失败尚可察觉，连上才是灾难。本地开发的密码写在
-     * {@code game-data/src/test/resources/application.yaml}（仅测试用，不打进 jar）。
+     * {@code game-data/src/test/resources/it-config.yaml}（仅测试用，不打进 jar）。
      */
     private String redisPassword;
 

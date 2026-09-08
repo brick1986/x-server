@@ -78,11 +78,11 @@ mvn -pl game-data test          # 21 个单元测试
 mvn -pl game-data verify        # 单元 + 集成测试
 ```
 
-连接参数（地址、密码、端口、库名）读 **`game-data/src/test/resources/application.yaml`**。该文件含本机密码，**不入库**（见 `.gitignore`），所以新 clone 的仓库里没有——先从模板复制一份：
+连接参数（地址、密码、端口、库名）读 **`game-data/src/test/resources/it-config.yaml`**。该文件含本机密码，**不入库**（见 `.gitignore`），所以新 clone 的仓库里没有——先从模板复制一份：
 
 ```bash
-cp game-data/src/test/resources/application.yaml.example \
-   game-data/src/test/resources/application.yaml
+cp game-data/src/test/resources/it-config.yaml.example \
+   game-data/src/test/resources/it-config.yaml
 ```
 
 然后改成你本机的值：
