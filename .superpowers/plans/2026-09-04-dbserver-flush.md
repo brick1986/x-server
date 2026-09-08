@@ -514,7 +514,7 @@ public final class DirtyLedger {
         List<Object> members = client.getScript(StringCodec.INSTANCE).eval(
                 RScript.Mode.READ_WRITE,
                 DRAIN_SCRIPT,
-                RScript.ReturnType.MULTI,
+                RScript.ReturnType.LIST,
                 List.of(DIRTY_SET, INFLIGHT_SET));
         Set<String> snapshot = new LinkedHashSet<>();
         for (Object m : members) {
@@ -606,7 +606,7 @@ inflight 恒等于「尚未落盘的 key」，故中断/崩溃零操作、由下
 
 - [ ] **Step 1: 写失败的测试**
 
-在 `MongoStoreIT.java` 追加（import 补 `com.mongodb.client.model.IndexOptions`、`java.util.LinkedHashMap`、`java.util.Set`）：
+在 `MongoStoreIT.java` 追加（import 补 `com.mongodb.client.model.IndexOptions`、`java.util.LinkedHashMap`，**不加 `java.util.Set`**——下述断言全走 AssertJ 类型推断，加它会成未用 import）：
 
 ```java
     @Test
