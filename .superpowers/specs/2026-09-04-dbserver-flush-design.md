@@ -182,6 +182,12 @@ for (List<String> chunk : partition(keys, chunkSize)) {
 
 锁名 `lock:dbserver:flush` 不走 `DataKeys.lockKey()`——那是 `lock:{entity}:{id}` 的实体锁命名，本锁是进程级互斥锁，不是实体锁，刻意不复用以免混淆两种语义。
 
+> 备案：固定租约 + 每片 `isHeld` 门控留有一个固有的（无 fencing token 的）跨实例写重叠微窗口——
+> 单轮超过 60s 租约且热备接管后，被夺锁实例的在途 Mongo 写若晚于接管者的写落地，会让 Mongo
+> 短暂回退到旧值（Redis 始终是权威；真要暴露还须叠加上线冷启动与 AOF 丢失窗口）。这与
+> `LockCtx.put` 的 `isHeld` 门控同构，沿用并发修订 §4.1 的全项目固定租约纪律；成熟期按
+> 并发修订 §4.3 的 token 门控升级路径评估。
+
 ## 6. 优雅停机：循环刷到空 + 硬超时
 
 架构 §4.3 只有一句「正常停服时 dirty 数据全量刷入 MongoDB」。**「全量」在 dbserver 单独停机时不是可达状态**：`game-web` 仍在运行并持续 `SADD dirty`，刷空一次，下一毫秒又有新的。故真实语义只能是「尽力刷 + 有界超时」：
@@ -249,6 +255,9 @@ Actuator + Micrometer 指标（架构 §6 已钉定 Actuator，`game-dbserver` �
 | 跳过轮次数 | counter | 抢不到 Redis 锁（热备正常，主实例异常） |
 
 沿用架构 §6 的 Logback + MDC 链路日志（模块 §3.5：dbserver 自带、不依赖 `game-web`）。
+
+> 状态注记：上表六项指标已随本计划落地；Logback + MDC 链路日志**未随本计划交付**——其 MDC
+> 填充源（userId 等）在 `game-web` 横切（Plan C 的余下部分），将随那部分工作一并落地。
 
 ## 8. `game-data` 的改动
 
