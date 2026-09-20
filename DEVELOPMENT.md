@@ -76,6 +76,16 @@ Redis/Mongo 的连接参数由 `game-data` 的 `DataProperties` 声明（`game.d
 
 > **`spring.data.redis.*` 在本项目静默无效。** `game-data` 自行创建 `RedissonClient`，绕开了 redisson-spring-boot-starter，所以那一族属性配了不报错也不生效。Redis 配置只认 `game.data.*`。
 
+### 停服顺序（强制）
+
+**先停 `game-web`，再停 `game-dbserver`。**
+
+`game-dbserver` 停机时会循环把 dirty 刷进 Mongo，最多 `FLUSH_SHUTDOWN_TIMEOUT` 秒。若 `game-web`
+还在跑，它会持续 `SADD dirty`——刷空一次下一毫秒又有新的，「刷到空」永远达不到，只能等超时。
+
+超时**不丢数据**：残留仍在 dirty，下次启动接着落。但那时数据暂时只在 Redis，只有 AOF `everysec`
+兜底，比落进 Mongo 弱。按顺序停即可让停机刷盘真正收敛。
+
 ### 多实例
 
 `game-dbserver` **允许起多个实例**，多出的会作热备空转：每轮落盘前竞争 Redis 锁

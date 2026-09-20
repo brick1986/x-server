@@ -5,6 +5,7 @@ import io.github.brick.data.store.MongoStore;
 import io.github.brick.data.store.RedisStore;
 import io.github.brick.dbserver.flush.FlushOrchestrator;
 import io.github.brick.dbserver.flush.FlushScheduler;
+import io.github.brick.dbserver.flush.GracefulShutdown;
 import org.redisson.api.RedissonClient;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -33,5 +34,11 @@ public class DbServerConfiguration {
     @Bean
     FlushScheduler flushScheduler(FlushOrchestrator orchestrator) {
         return new FlushScheduler(orchestrator);
+    }
+
+    @Bean
+    GracefulShutdown gracefulShutdown(FlushScheduler scheduler, DirtyLedger dirty,
+                                      DbServerProperties p) {
+        return new GracefulShutdown(scheduler, dirty, p.getShutdownTimeoutSeconds());
     }
 }
