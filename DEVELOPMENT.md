@@ -75,6 +75,9 @@ Redis/Mongo 的连接参数由 `game-data` 的 `DataProperties` 声明（`game.d
 | `FLUSH_SHUTDOWN_TIMEOUT` | 20 | 1~120 | 停机刷盘硬超时（秒）；超时不丢数据，残留下次启动接着落 |
 
 > **`spring.data.redis.*` 在本项目静默无效。** `game-data` 自行创建 `RedissonClient`，绕开了 redisson-spring-boot-starter，所以那一族属性配了不报错也不生效。Redis 配置只认 `game.data.*`。
+>
+> 若本机曾跑过旧版（dirty 集合还不带花括号的时期），旧的 `dirty` 集合已不会被消费，
+> 手工清理一次即可：`redis-cli DEL dirty`。生产环境从未跑过 dbserver，无此问题。
 
 ### 停服顺序（强制）
 
@@ -95,12 +98,22 @@ Redis/Mongo 的连接参数由 `game-data` 的 `DataProperties` 声明（`game.d
 正确性由这把锁保证，**不依赖部署纪律**——这与架构 §2 放弃 sticky 路由时立下的原则一致：
 写正确性不押在运维正确配置上。
 
+### 指标
+
+`game-dbserver` 是 headless 进程（`web-application-type: none`），落盘指标经 **JMX** 暴露（Spring Boot
+默认开启）：`jconsole` 连接进程后在 MBean 树 `io.micrometer.core.instrument.*` 可见，关键的有
+`dbserver.dirty.backlog`（dirty 积压量——**最该配告警的指标**，持续增长说明落盘跟不上写入）、
+`dbserver.flush.round`（单轮耗时）、`dbserver.flush.failed`（毒丸 key）。
+
+成熟期若需要 HTTP 抓取（Prometheus 等），届时改用独立 management 端口或 push 网关——
+`management.endpoints.web.exposure` 在无 web 容器的进程里是死配置，不要配。
+
 ## 五、跑测试
 
 单元测试不需要外部服务：
 
 ```bash
-mvn -pl game-data test          # 21 个单元测试
+mvn -pl game-data test          # 23 个单元测试
 ```
 
 集成测试（`*IT.java`）连**本地预起**的 Redis/Mongo，不用 Testcontainers。跑之前 Redis、Mongo 都得在跑：

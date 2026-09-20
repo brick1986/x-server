@@ -6,7 +6,6 @@ import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class MongoStoreIT extends LocalRedisMongo {

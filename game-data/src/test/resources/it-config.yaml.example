@@ -12,6 +12,10 @@
 # 更不要去改生产类 DataProperties 的默认值——那会把本机配置提交进 git，
 # 并在部署时忘设环境变量的情况下静默充当线上兜底。
 #
+# 注意：复制出的 it-config.yaml 会随 game-data 的 test-jar 进入本地 ~/.m2（test-jar 打包
+# target/test-classes，测试资源一并入内；含密码，仅本机）。项目不发布制品，无外泄面；
+# 若日后开始发布，需改为环境变量注入连接参数。
+#
 # 注意：LocalRedisMongo 每个用例会 flushdb 当前 Redis 库、drop 下面这个 Mongo 库。
 # 务必指向本地开发实例，别指向有真实数据的地方。
 game:

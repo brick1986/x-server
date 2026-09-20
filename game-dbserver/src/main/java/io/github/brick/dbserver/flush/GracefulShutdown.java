@@ -80,10 +80,14 @@ public class GracefulShutdown implements SmartLifecycle {
                 break;
             }
         }
-        // 中断提前退出时 pause() 已记 WARN，这里不能冒充超时；带 backlog 数的 ERROR 只在真超时发
+        // 中断提前退出时 pause() 已记 WARN，这里不能冒充超时；带残留数的 ERROR 只在真超时发。
+        // 残留必须 dirty 与 in-flight 一起报：最后一轮死在片中间（MongoException）时剩余 key
+        // 全在 in-flight、dirty 恰为空——只报 dirty 会在最该知道还有多少货的时刻说出「0 个」。
         if (!interruptedExit) {
-            log.error("停机刷盘超时（{}s），dirty 仍有 {} 个 key 未落盘；数据仍在 Redis，下次启动后会接着落",
-                    timeoutSeconds, dirty == null ? -1 : dirty.backlogSize());
+            log.error("停机刷盘超时（{}s），dirty 仍有 {} 个、in-flight 仍有 {} 个 key 未落盘；数据仍在 Redis，下次启动后会接着落",
+                    timeoutSeconds,
+                    dirty == null ? -1 : dirty.backlogSize(),
+                    dirty == null ? -1 : dirty.inflightMembers().size());
         }
     }
 

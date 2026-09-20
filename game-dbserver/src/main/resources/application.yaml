@@ -28,9 +28,3 @@ game:
     lock-lease-seconds: ${FLUSH_LOCK_LEASE:60}               # 落盘锁租约，固定、无看门狗
     shutdown-timeout-seconds: ${FLUSH_SHUTDOWN_TIMEOUT:20}   # 停机刷盘硬超时
 
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,metrics
-
