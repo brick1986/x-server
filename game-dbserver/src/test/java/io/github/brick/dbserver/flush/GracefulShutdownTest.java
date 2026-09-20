@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 class GracefulShutdownTest {
 
@@ -105,5 +106,23 @@ class GracefulShutdownTest {
                 FlushOrchestrator.INTERRUPTED, FlushOrchestrator.INTERRUPTED, 0);
         shutdown(s, 20L).stop();
         assertThat(s.rounds).hasValue(3);
+    }
+
+    @Test
+    void stopKeepsRetryingWhenARoundThrows() {
+        // flushOnce 的 javadoc 钉明会抛 MongoException（RuntimeException）：停机循环第一轮抛了
+        // 不能就此中止——否则「尽力刷到硬超时」落空，还跳过带 backlog 数的超时 ERROR
+        ScriptedScheduler s = new ScriptedScheduler() {
+            @Override
+            public int flushBlocking() {
+                if (rounds.getAndIncrement() == 0) {
+                    throw new RuntimeException("mongo 抖动");
+                }
+                return 0;
+            }
+        };
+        GracefulShutdown g = shutdown(s, 20L);
+        assertThatCode(g::stop).doesNotThrowAnyException();
+        assertThat(s.rounds).hasValue(2);          // 抛异常的轮没中止循环，第二轮收敛
     }
 }

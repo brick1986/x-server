@@ -67,19 +67,41 @@ public class GracefulShutdown implements SmartLifecycle {
         scheduler.stopAccepting();
 
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+        boolean interruptedExit = false;
         while (System.nanoTime() < deadline) {
-            if (scheduler.flushBlocking() == 0) {
+            if (flushOneRound() == 0) {
                 log.info("停机刷盘完成，dirty 已排空");
                 return;
             }
-            // INTERRUPTED（抢不到锁 / 中途失锁）也走这里继续重试到超时：
-            // 另一实例正在刷同一份 dirty，超时后放行退出、残留由对方或下次启动落完
+            // INTERRUPTED（抢不到锁 / 中途失锁）与抛异常的轮次（flushOneRound 已吞）都走这里
+            // 继续重试到超时：另一实例正在刷同一份 dirty，超时后放行退出、残留由对方或下次启动落完
             if (!pause()) {
+                interruptedExit = true;
                 break;
             }
         }
-        log.error("停机刷盘超时（{}s），dirty 仍有 {} 个 key 未落盘；数据仍在 Redis，下次启动后会接着落",
-                timeoutSeconds, dirty == null ? -1 : dirty.backlogSize());
+        // 中断提前退出时 pause() 已记 WARN，这里不能冒充超时；带 backlog 数的 ERROR 只在真超时发
+        if (!interruptedExit) {
+            log.error("停机刷盘超时（{}s），dirty 仍有 {} 个 key 未落盘；数据仍在 Redis，下次启动后会接着落",
+                    timeoutSeconds, dirty == null ? -1 : dirty.backlogSize());
+        }
+    }
+
+    /**
+     * 单轮停机刷盘调用，带异常护栏。{@link FlushScheduler#flushBlocking()} 透传
+     * {@link FlushOrchestrator#flushOnce()} 的返回值，也会透传它抛的 {@code MongoException}
+     * （连接级故障）。定时路径的 {@code tick()} 为此 catch 了 RuntimeException（「一次 Mongo
+     * 抖动不该让定时轮次此后再也不跑」）——停机循环同理：抛了就当本轮没干成事，返回
+     * {@link FlushOrchestrator#INTERRUPTED} 继续重试到硬超时，绝不中止循环。
+     */
+    private int flushOneRound() {
+        try {
+            return scheduler.flushBlocking();
+        } catch (RuntimeException e) {
+            // 剩余 key 留在 in-flight，由下一轮 drain 的恢复步骤合回（落盘 spec §2.3）
+            log.error("停机刷盘轮次异常结束，继续重试到超时；剩余 key 留在 in-flight 待下轮恢复", e);
+            return FlushOrchestrator.INTERRUPTED;
+        }
     }
 
     /** @return false 表示被中断，应立即结束刷盘循环 */
