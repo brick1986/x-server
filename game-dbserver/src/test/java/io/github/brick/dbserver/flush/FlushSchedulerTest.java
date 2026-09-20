@@ -17,7 +17,7 @@ class FlushSchedulerTest {
         int result = 0;
 
         CountingOrchestrator() {
-            super(null, null, null, null, 500, 60L);
+            super(null, null, null, null, 500, 60L, null);
         }
 
         @Override
@@ -68,7 +68,7 @@ class FlushSchedulerTest {
     @Test
     void tickSwallowsExceptionsSoTheScheduleSurvives() {
         // 一次 Mongo 抖动不该让定时轮次此后再也不跑
-        FlushOrchestrator boom = new FlushOrchestrator(null, null, null, null, 500, 60L) {
+        FlushOrchestrator boom = new FlushOrchestrator(null, null, null, null, 500, 60L, null) {
             @Override
             public int flushOnce() {
                 throw new IllegalStateException("mongo 抖了");
@@ -87,7 +87,7 @@ class FlushSchedulerTest {
         AtomicInteger concurrent = new AtomicInteger();
         AtomicInteger maxConcurrent = new AtomicInteger();
 
-        FlushOrchestrator slow = new FlushOrchestrator(null, null, null, null, 500, 60L) {
+        FlushOrchestrator slow = new FlushOrchestrator(null, null, null, null, 500, 60L, null) {
             @Override
             public int flushOnce() {
                 maxConcurrent.accumulateAndGet(concurrent.incrementAndGet(), Math::max);

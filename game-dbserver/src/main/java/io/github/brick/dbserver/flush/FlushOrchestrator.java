@@ -53,15 +53,17 @@ public class FlushOrchestrator {
     private final MongoStore mongo;
     private final int chunkSize;
     private final long lockLeaseSeconds;
+    private final FlushMetrics metrics;
 
     public FlushOrchestrator(RedissonClient redisson, DirtyLedger dirty, RedisStore redis,
-                             MongoStore mongo, int chunkSize, long lockLeaseSeconds) {
+                             MongoStore mongo, int chunkSize, long lockLeaseSeconds, FlushMetrics metrics) {
         this.redisson = redisson;
         this.dirty = dirty;
         this.redis = redis;
         this.mongo = mongo;
         this.chunkSize = chunkSize;
         this.lockLeaseSeconds = lockLeaseSeconds;
+        this.metrics = metrics;
     }
 
     /**
@@ -88,6 +90,7 @@ public class FlushOrchestrator {
         if (!acquired) {
             // 这是热备实例的**正常**状态，不是故障，故 DEBUG 而非 WARN
             log.debug("未抢到落盘锁，本轮跳过（另一实例正在落盘）");
+            metrics.recordSkippedRound();
             return INTERRUPTED;
         }
         try {
@@ -102,20 +105,28 @@ public class FlushOrchestrator {
     }
 
     private int drainAndFlush(RLock lock) {
+        long startNanos = System.nanoTime();
+        int flushed = 0, failed = 0, missing = 0;
         Set<String> keys = dirty.drainToInflight();
         if (keys.isEmpty()) {
+            metrics.recordRound(System.nanoTime() - startNanos, 0, 0, 0);
             return 0;
         }
         for (List<String> chunk : chunks(keys, chunkSize)) {
-            flushChunk(chunk);
+            ChunkStats s = flushChunk(chunk);
+            flushed += s.flushed();
+            failed += s.failed();
+            missing += s.missing();
             if (!stillHoldsLock(lock)) {
                 // 与 LockCtx.put 的 isHeld 提交门控同构：绝不带着失效锁继续写。
                 // 剩余 key 留在 in-flight，由下一轮 drain 的恢复步骤合回（落盘 spec §2.3）
                 log.error("落盘中途失锁（租约 {}s 到期），中断本轮；剩余 {} 个 key 留在 in-flight 待下轮恢复",
                         lockLeaseSeconds, dirty.inflightMembers().size());
+                metrics.recordRound(System.nanoTime() - startNanos, flushed, failed, missing);
                 return INTERRUPTED;
             }
         }
+        metrics.recordRound(System.nanoTime() - startNanos, flushed, failed, missing);
         return keys.size();
     }
 
@@ -127,7 +138,10 @@ public class FlushOrchestrator {
         return lock.isHeldByCurrentThread();
     }
 
-    protected void flushChunk(List<String> chunk) {
+    /** 单片落盘统计，仅用于指标累计。包级可见——测试子类覆盖 {@code flushChunk} 时须能命名返回类型（同 {@link #chunks} 的先例）。 */
+    record ChunkStats(int flushed, int failed, int missing) {}
+
+    protected ChunkStats flushChunk(List<String> chunk) {
         Map<String, String> values = redis.mget(chunk);      // 一次往返；返回即还 Redis 连接
 
         // mget 不把不存在的 key 映射到 null，而是不放进 Map，故差值即 nil 数量。
@@ -143,6 +157,7 @@ public class FlushOrchestrator {
             dirty.markAll(failed);      // 顺序要求：必须先 mark 再 ack（落盘 spec §2.4）
         }
         dirty.ackInflight(chunk);       // 两步之间崩溃只会导致整片被下轮重放，upsert 幂等
+        return new ChunkStats(values.size() - failed.size(), failed.size(), missing);
     }
 
     /** 定长切片。包级可见供单测——切分边界（空集/整数倍/余数）值得独立于 Redis 验证。 */

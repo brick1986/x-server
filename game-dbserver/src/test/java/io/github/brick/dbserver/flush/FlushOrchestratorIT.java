@@ -4,6 +4,7 @@ import io.github.brick.data.LocalRedisMongo;
 import io.github.brick.data.overlay.DirtyLedger;
 import io.github.brick.data.store.MongoStore;
 import io.github.brick.data.store.RedisStore;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -18,9 +19,11 @@ class FlushOrchestratorIT extends LocalRedisMongo {
     }
 
     private FlushOrchestrator orchestrator(int chunkSize) {
+        DirtyLedger dirty = new DirtyLedger(redis);
         return new FlushOrchestrator(
-                redis, new DirtyLedger(redis), new RedisStore(redis),
-                new MongoStore(mongo, MONGO_DB), chunkSize, 60L);
+                redis, dirty, new RedisStore(redis),
+                new MongoStore(mongo, MONGO_DB), chunkSize, 60L,
+                new FlushMetrics(new SimpleMeterRegistry(), dirty));
     }
 
     @Test

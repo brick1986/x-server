@@ -4,6 +4,7 @@ import io.github.brick.data.LocalRedisMongo;
 import io.github.brick.data.overlay.DirtyLedger;
 import io.github.brick.data.store.MongoStore;
 import io.github.brick.data.store.RedisStore;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -16,8 +17,10 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 class FlushLockIT extends LocalRedisMongo {
 
     private FlushOrchestrator orchestrator() {
-        return new FlushOrchestrator(redis, new DirtyLedger(redis), new RedisStore(redis),
-                new MongoStore(mongo, MONGO_DB), 500, 60L);
+        DirtyLedger dirty = new DirtyLedger(redis);
+        return new FlushOrchestrator(redis, dirty, new RedisStore(redis),
+                new MongoStore(mongo, MONGO_DB), 500, 60L,
+                new FlushMetrics(new SimpleMeterRegistry(), dirty));
     }
 
     @Test
@@ -93,9 +96,10 @@ class FlushLockIT extends LocalRedisMongo {
         d.mark("player:1:profile");
 
         FlushOrchestrator broken = new FlushOrchestrator(
-                redis, d, new RedisStore(redis), new MongoStore(mongo, MONGO_DB), 500, 60L) {
+                redis, d, new RedisStore(redis), new MongoStore(mongo, MONGO_DB), 500, 60L,
+                new FlushMetrics(new SimpleMeterRegistry(), d)) {
             @Override
-            protected void flushChunk(java.util.List<String> chunk) {
+            protected FlushOrchestrator.ChunkStats flushChunk(java.util.List<String> chunk) {
                 throw new IllegalStateException("mongo 抖了");
             }
         };
@@ -116,7 +120,8 @@ class FlushLockIT extends LocalRedisMongo {
             d.mark("player:" + i + ":profile");
         }
         FlushOrchestrator perKeyChunks = new FlushOrchestrator(
-                redis, d, r, new MongoStore(mongo, MONGO_DB), 1, 60L);
+                redis, d, r, new MongoStore(mongo, MONGO_DB), 1, 60L,
+                new FlushMetrics(new SimpleMeterRegistry(), d));
 
         assertThat(perKeyChunks.flushOnce()).isEqualTo(6);
         assertThat(d.members()).isEmpty();
@@ -135,7 +140,8 @@ class FlushLockIT extends LocalRedisMongo {
         }
 
         FlushOrchestrator losesLock = new FlushOrchestrator(
-                redis, d, r, new MongoStore(mongo, MONGO_DB), 1, 60L) {
+                redis, d, r, new MongoStore(mongo, MONGO_DB), 1, 60L,
+                new FlushMetrics(new SimpleMeterRegistry(), d)) {
             private int chunksDone = 0;
 
             @Override
@@ -159,7 +165,8 @@ class FlushLockIT extends LocalRedisMongo {
             r.set("player:" + i + ":profile", "{\"i\":" + i + "}");
             d.mark("player:" + i + ":profile");
         }
-        new FlushOrchestrator(redis, d, r, new MongoStore(mongo, MONGO_DB), 1, 60L) {
+        new FlushOrchestrator(redis, d, r, new MongoStore(mongo, MONGO_DB), 1, 60L,
+                new FlushMetrics(new SimpleMeterRegistry(), d)) {
             @Override
             protected boolean stillHoldsLock(org.redisson.api.RLock lock) {
                 return false;                 // 第一片之后就中断

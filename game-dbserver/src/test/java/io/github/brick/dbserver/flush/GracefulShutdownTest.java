@@ -16,7 +16,7 @@ class GracefulShutdownTest {
         boolean stopAcceptingCalled = false;
 
         ScriptedScheduler(int... results) {
-            super(new FlushOrchestrator(null, null, null, null, 500, 60L));
+            super(new FlushOrchestrator(null, null, null, null, 500, 60L, null));
             this.results = results;
         }
 

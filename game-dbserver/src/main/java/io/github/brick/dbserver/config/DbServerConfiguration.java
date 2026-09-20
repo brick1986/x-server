@@ -3,9 +3,11 @@ package io.github.brick.dbserver.config;
 import io.github.brick.data.overlay.DirtyLedger;
 import io.github.brick.data.store.MongoStore;
 import io.github.brick.data.store.RedisStore;
+import io.github.brick.dbserver.flush.FlushMetrics;
 import io.github.brick.dbserver.flush.FlushOrchestrator;
 import io.github.brick.dbserver.flush.FlushScheduler;
 import io.github.brick.dbserver.flush.GracefulShutdown;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.redisson.api.RedissonClient;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -25,10 +27,16 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class DbServerConfiguration {
 
     @Bean
+    FlushMetrics flushMetrics(MeterRegistry registry, DirtyLedger dirty) {
+        return new FlushMetrics(registry, dirty);
+    }
+
+    @Bean
     FlushOrchestrator flushOrchestrator(RedissonClient redisson, DirtyLedger dirty,
-                                        RedisStore redis, MongoStore mongo, DbServerProperties p) {
+                                        RedisStore redis, MongoStore mongo,
+                                        DbServerProperties p, FlushMetrics metrics) {
         return new FlushOrchestrator(redisson, dirty, redis, mongo,
-                p.getChunkSize(), p.getLockLeaseSeconds());
+                p.getChunkSize(), p.getLockLeaseSeconds(), metrics);
     }
 
     @Bean
