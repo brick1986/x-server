@@ -2340,7 +2340,7 @@ public class GracefulShutdown implements SmartLifecycle {
 - [ ] **Step 5: 跑测试确认通过**
 
 Run: `./mvnw -pl game-dbserver -am verify`
-Expected: PASS（`GracefulShutdownTest` 7 个 + 既有全绿）
+Expected: PASS（`GracefulShutdownTest` 6 个 + 既有全绿）
 
 - [ ] **Step 6: 补 `DEVELOPMENT.md` 的停服顺序约定**
 
