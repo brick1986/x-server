@@ -102,7 +102,8 @@ class FlushOrchestratorIT extends LocalRedisMongo {
         r.set(BAG_1, "[1]");
         d.mark(BAG_1);
 
-        Set<String> snapshot = d.drainToInflight();       // 模拟本轮已排空
+        Set<String> snapshot = d.drainAll().values().stream()
+                .flatMap(Set::stream).collect(java.util.stream.Collectors.toSet());   // 模拟本轮已排空
         r.set(BAG_1, "[1,2]");                             // 业务侧写 v2
         d.mark(BAG_1);                                     // 并重新标脏
         d.ackInflight(snapshot);                           // 本轮 ack 自己的快照
@@ -119,7 +120,7 @@ class FlushOrchestratorIT extends LocalRedisMongo {
         DirtyLedger d = dirty();
         r.set(PROFILE_1, "{\"v\":1}");
         d.mark(PROFILE_1);
-        d.drainToInflight();                              // 排空后「崩溃」，不 ack
+        d.drainAll();                                     // 排空后「崩溃」，不 ack
         assertThat(d.members()).isEmpty();
         assertThat(d.inflightMembers()).containsExactly(PROFILE_1);
 

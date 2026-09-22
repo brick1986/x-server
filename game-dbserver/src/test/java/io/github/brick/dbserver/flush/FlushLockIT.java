@@ -93,7 +93,7 @@ class FlushLockIT extends LocalRedisMongo {
     void lockIsReleasedEvenWhenTheRoundBlowsUp() {
         // Mongo 连接级异常会穿透 flushOnce（落盘 spec §4），锁仍须释放，
         // 否则一次 Mongo 抖动会让落盘停摆到租约到期。
-        // 用覆盖 flushChunk 抛异常的子类，确定性地制造「一轮中途爆炸」，
+        // 用覆盖 flushBatch 抛异常的子类，确定性地制造「一轮中途爆炸」，
         // 不依赖某版 Mongo 驱动对非法库名的校验行为。
         DirtyLedger d = new DirtyLedger(redis);
         new RedisStore(redis).set(PROFILE_1, "{}");
@@ -103,7 +103,8 @@ class FlushLockIT extends LocalRedisMongo {
                 redis, d, new RedisStore(redis), new MongoStore(mongo, MONGO_DB), 500, 60L,
                 new FlushMetrics(new SimpleMeterRegistry(), d)) {
             @Override
-            protected FlushOrchestrator.ChunkStats flushChunk(java.util.List<String> chunk) {
+            protected FlushOrchestrator.ChunkStats flushBatch(
+                    java.util.List<String> members, java.util.Map<String, String> values) {
                 throw new IllegalStateException("mongo 抖了");
             }
         };

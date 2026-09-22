@@ -122,17 +122,6 @@ public final class DirtyLedger {
     }
 
     /**
-     * 过渡桥：聚合全部桶排空为扁平快照，供桶化编排落地前的旧版 FlushOrchestrator 使用。
-     * **桶化编排落地后删除**——扁平化丢失桶信息，MGET 无法按桶分组。
-     */
-    @Deprecated
-    public Set<String> drainToInflight() {
-        Set<String> flat = new LinkedHashSet<>();
-        drainAll().values().forEach(flat::addAll);
-        return flat;
-    }
-
-    /**
      * 一批落盘完成，把成员移出各自桶的 in-flight。**必须在 {@link #markAll} 回写失败
      * key 之后调用**（落盘 spec §2.4）：反序则「ack 后、mark 前」崩溃会让失败 key 既不在
      * in-flight 也不在 dirty，静默丢标记。批内 key 可跨桶——按 key 推导桶分组下发。
