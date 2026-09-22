@@ -2,6 +2,7 @@ package io.github.brick.dbserver.flush;
 
 import io.github.brick.data.LocalRedisMongo;
 import io.github.brick.data.overlay.DirtyLedger;
+import io.github.brick.data.store.DataKeys;
 import io.github.brick.data.store.MongoStore;
 import io.github.brick.data.store.RedisStore;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -15,6 +16,10 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class FlushMetricsIT extends LocalRedisMongo {
+
+    private static final String PROFILE_1 = DataKeys.key("player", 1, "profile");
+    private static final String PROFILE_2 = DataKeys.key("player", 2, "profile");
+    private static final String BAG_2 = DataKeys.key("player", 2, "bag");
 
     private MeterRegistry registry;
     private DirtyLedger dirty;
@@ -31,12 +36,12 @@ class FlushMetricsIT extends LocalRedisMongo {
     void backlogGaugeReflectsDirtySize() {
         // 最该看的指标：持续增长说明落盘跟不上写入
         FlushOrchestrator o = orchestrator(500);
-        dirty.mark("player:1:profile");
-        dirty.mark("player:2:bag");
+        dirty.mark(PROFILE_1);
+        dirty.mark(BAG_2);
         assertThat(registry.get("dbserver.dirty.backlog").gauge().value()).isEqualTo(2.0);
 
-        new RedisStore(redis).set("player:1:profile", "{}");
-        new RedisStore(redis).set("player:2:bag", "[]");
+        new RedisStore(redis).set(PROFILE_1, "{}");
+        new RedisStore(redis).set(BAG_2, "[]");
         o.flushOnce();
         assertThat(registry.get("dbserver.dirty.backlog").gauge().value()).isZero();
     }
@@ -45,8 +50,8 @@ class FlushMetricsIT extends LocalRedisMongo {
     void roundRecordsTimerAndFlushedCount() {
         RedisStore r = new RedisStore(redis);
         FlushOrchestrator o = orchestrator(500);
-        r.set("player:1:profile", "{}");
-        dirty.mark("player:1:profile");
+        r.set(PROFILE_1, "{}");
+        dirty.mark(PROFILE_1);
 
         o.flushOnce();
 
@@ -57,7 +62,7 @@ class FlushMetricsIT extends LocalRedisMongo {
     @Test
     void missingKeysAreCountedSeparatelyFromFlushedOnes() {
         FlushOrchestrator o = orchestrator(500);
-        dirty.mark("player:404:bag");          // Redis 里没有
+        dirty.mark(DataKeys.key("player", 404, "bag"));          // Redis 里没有
 
         o.flushOnce();
 
@@ -71,10 +76,10 @@ class FlushMetricsIT extends LocalRedisMongo {
                 new org.bson.Document("v", 1),
                 new com.mongodb.client.model.IndexOptions().unique(true));
         FlushOrchestrator o = orchestrator(500);
-        new MongoStore(mongo, MONGO_DB).upsert("player:1:profile", "{\"dup\":1}");
+        new MongoStore(mongo, MONGO_DB).upsert(PROFILE_1, "{\"dup\":1}");
         RedisStore r = new RedisStore(redis);
-        r.set("player:2:profile", "{\"dup\":1}");
-        dirty.mark("player:2:profile");
+        r.set(PROFILE_2, "{\"dup\":1}");
+        dirty.mark(PROFILE_2);
 
         o.flushOnce();
 

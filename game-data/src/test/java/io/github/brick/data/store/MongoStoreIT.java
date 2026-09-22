@@ -16,28 +16,28 @@ class MongoStoreIT extends LocalRedisMongo {
 
     @Test
     void loadMissingReturnsNull() {
-        assertThat(store().load("player:1:profile")).isNull();
+        assertThat(store().load(DataKeys.key("player", 1, "profile"))).isNull();
     }
 
     @Test
     void upsertThenLoadRoundTrip() {
         MongoStore s = store();
-        s.upsert("player:1:profile", "{\"name\":\"alice\"}");
-        assertThat(s.load("player:1:profile")).isEqualTo("{\"name\":\"alice\"}");
+        s.upsert(DataKeys.key("player", 1, "profile"), "{\"name\":\"alice\"}");
+        assertThat(s.load(DataKeys.key("player", 1, "profile"))).isEqualTo("{\"name\":\"alice\"}");
     }
 
     @Test
     void upsertIsIdempotentReplace() {
         MongoStore s = store();
-        s.upsert("player:1:profile", "{\"v\":1}");
-        s.upsert("player:1:profile", "{\"v\":2}");
-        assertThat(s.load("player:1:profile")).isEqualTo("{\"v\":2}");
+        s.upsert(DataKeys.key("player", 1, "profile"), "{\"v\":1}");
+        s.upsert(DataKeys.key("player", 1, "profile"), "{\"v\":2}");
+        assertThat(s.load(DataKeys.key("player", 1, "profile"))).isEqualTo("{\"v\":2}");
     }
 
     @Test
     void loadUsesCollectionEntityColonFieldAndIdDocId() {
         MongoStore s = store();
-        s.upsert("player:123:profile", "{}");
+        s.upsert(DataKeys.key("player", 123, "profile"), "{}");
         Document doc = db().getCollection("player:profile").find(new Document("_id", 123L)).first();
         assertThat(doc).isNotNull();
         assertThat(doc.get("_id")).isEqualTo(123L);
@@ -47,17 +47,17 @@ class MongoStoreIT extends LocalRedisMongo {
     void bulkUpsertWritesAllAndLoadsBack() {
         MongoStore s = store();
         assertThat(s.bulkUpsert(Map.of(
-                "player:1:profile", "{\"p\":1}",
-                "player:2:bag", "{\"b\":2}",
-                "guild:7:fund", "{\"f\":7}"))).isEmpty();
-        assertThat(s.load("player:1:profile")).isEqualTo("{\"p\":1}");
-        assertThat(s.load("player:2:bag")).isEqualTo("{\"b\":2}");
-        assertThat(s.load("guild:7:fund")).isEqualTo("{\"f\":7}");
+                DataKeys.key("player", 1, "profile"), "{\"p\":1}",
+                DataKeys.key("player", 2, "bag"), "{\"b\":2}",
+                DataKeys.key("guild", 7, "fund"), "{\"f\":7}"))).isEmpty();
+        assertThat(s.load(DataKeys.key("player", 1, "profile"))).isEqualTo("{\"p\":1}");
+        assertThat(s.load(DataKeys.key("player", 2, "bag"))).isEqualTo("{\"b\":2}");
+        assertThat(s.load(DataKeys.key("guild", 7, "fund"))).isEqualTo("{\"f\":7}");
     }
 
     @Test
     void bulkUpsertReturnsEmptySetWhenAllSucceed() {
-        assertThat(store().bulkUpsert(Map.of("player:1:profile", "{\"p\":1}"))).isEmpty();
+        assertThat(store().bulkUpsert(Map.of(DataKeys.key("player", 1, "profile"), "{\"p\":1}"))).isEmpty();
     }
 
     @Test
@@ -73,16 +73,16 @@ class MongoStoreIT extends LocalRedisMongo {
         db().getCollection("player:profile")
                 .createIndex(new Document("v", 1), new IndexOptions().unique(true));
         MongoStore s = store();
-        s.upsert("player:1:profile", "{\"dup\":1}");
+        s.upsert(DataKeys.key("player", 1, "profile"), "{\"dup\":1}");
 
         Map<String, String> batch = new LinkedHashMap<>();
-        batch.put("player:2:profile", "{\"dup\":1}");   // v 与 player:1 重复 → 唯一索引冲突
-        batch.put("player:3:profile", "{\"ok\":3}");
+        batch.put(DataKeys.key("player", 2, "profile"), "{\"dup\":1}");   // v 与 player:1 重复 → 唯一索引冲突
+        batch.put(DataKeys.key("player", 3, "profile"), "{\"ok\":3}");
 
-        assertThat(s.bulkUpsert(batch)).containsExactly("player:2:profile");
+        assertThat(s.bulkUpsert(batch)).containsExactly(DataKeys.key("player", 2, "profile"));
         // unordered 的关键收益：失败那条没有拖累同批其余（ordered 下 player:3 根本不会执行）
-        assertThat(s.load("player:3:profile")).isEqualTo("{\"ok\":3}");
-        assertThat(s.load("player:2:profile")).isNull();
+        assertThat(s.load(DataKeys.key("player", 3, "profile"))).isEqualTo("{\"ok\":3}");
+        assertThat(s.load(DataKeys.key("player", 2, "profile"))).isNull();
     }
 
     @Test
@@ -93,15 +93,15 @@ class MongoStoreIT extends LocalRedisMongo {
         db().getCollection("guild:fund")
                 .createIndex(new Document("v", 1), new IndexOptions().unique(true));
         MongoStore s = store();
-        s.upsert("guild:1:fund", "{\"dup\":1}");
+        s.upsert(DataKeys.key("guild", 1, "fund"), "{\"dup\":1}");
 
         Map<String, String> batch = new LinkedHashMap<>();
-        batch.put("player:1:profile", "{\"p\":1}");     // player:profile 组
-        batch.put("player:2:profile", "{\"p\":2}");     // player:profile 组
-        batch.put("guild:2:fund", "{\"dup\":1}");       // guild:fund 组内下标 0，冲突
+        batch.put(DataKeys.key("player", 1, "profile"), "{\"p\":1}");     // player:profile 组
+        batch.put(DataKeys.key("player", 2, "profile"), "{\"p\":2}");     // player:profile 组
+        batch.put(DataKeys.key("guild", 2, "fund"), "{\"dup\":1}");       // guild:fund 组内下标 0，冲突
 
-        assertThat(s.bulkUpsert(batch)).containsExactly("guild:2:fund");
-        assertThat(s.load("player:1:profile")).isEqualTo("{\"p\":1}");
-        assertThat(s.load("player:2:profile")).isEqualTo("{\"p\":2}");
+        assertThat(s.bulkUpsert(batch)).containsExactly(DataKeys.key("guild", 2, "fund"));
+        assertThat(s.load(DataKeys.key("player", 1, "profile"))).isEqualTo("{\"p\":1}");
+        assertThat(s.load(DataKeys.key("player", 2, "profile"))).isEqualTo("{\"p\":2}");
     }
 }

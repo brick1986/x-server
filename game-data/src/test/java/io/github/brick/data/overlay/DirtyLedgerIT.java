@@ -1,6 +1,7 @@
 package io.github.brick.data.overlay;
 
 import io.github.brick.data.LocalRedisMongo;
+import io.github.brick.data.store.DataKeys;
 import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Set;
@@ -8,37 +9,42 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class DirtyLedgerIT extends LocalRedisMongo {
 
+    private static final String P1 = DataKeys.key("player", 1, "profile");
+    private static final String P2 = DataKeys.key("player", 2, "bag");
+    private static final String G7 = DataKeys.key("guild", 7, "fund");
+    private static final String P1_BAG = DataKeys.key("player", 1, "bag");
+
     @Test
     void markAndMembers() {
         DirtyLedger d = new DirtyLedger(redis);
-        d.mark("player:1:profile");
-        d.mark("player:2:bag");
-        assertThat(d.members()).containsExactlyInAnyOrder("player:1:profile", "player:2:bag");
+        d.mark(P1);
+        d.mark(P2);
+        assertThat(d.members()).containsExactlyInAnyOrder(P1, P2);
     }
 
     @Test
     void removeDropsMember() {
         DirtyLedger d = new DirtyLedger(redis);
-        d.mark("player:1:profile");
-        d.mark("player:2:bag");
-        d.remove("player:1:profile");
-        assertThat(d.members()).containsExactly("player:2:bag");
+        d.mark(P1);
+        d.mark(P2);
+        d.remove(P1);
+        assertThat(d.members()).containsExactly(P2);
     }
 
     @Test
     void removeAllDropsAll() {
         DirtyLedger d = new DirtyLedger(redis);
-        d.mark("player:1:profile");
-        d.mark("guild:7:fund");
-        d.removeAll(Set.of("player:1:profile", "guild:7:fund"));
+        d.mark(P1);
+        d.mark(G7);
+        d.removeAll(Set.of(P1, G7));
         assertThat(d.members()).isEmpty();
     }
 
     @Test
     void membersStoresRawStringNotQuotedJson() {
         DirtyLedger d = new DirtyLedger(redis);
-        d.mark("player:1:profile");
-        assertThat(d.members()).first().isEqualTo("player:1:profile");
+        d.mark(P1);
+        assertThat(d.members()).first().isEqualTo(P1);
     }
 
     @Test
@@ -52,13 +58,13 @@ class DirtyLedgerIT extends LocalRedisMongo {
     @Test
     void drainMovesEverythingToInflightAndEmptiesDirty() {
         DirtyLedger d = new DirtyLedger(redis);
-        d.mark("player:1:profile");
-        d.mark("guild:7:fund");
+        d.mark(P1);
+        d.mark(G7);
         assertThat(d.drainToInflight())
-                .containsExactlyInAnyOrder("player:1:profile", "guild:7:fund");
+                .containsExactlyInAnyOrder(P1, G7);
         assertThat(d.members()).isEmpty();
         assertThat(d.inflightMembers())
-                .containsExactlyInAnyOrder("player:1:profile", "guild:7:fund");
+                .containsExactlyInAnyOrder(P1, G7);
     }
 
     @Test
@@ -70,13 +76,13 @@ class DirtyLedgerIT extends LocalRedisMongo {
     @Test
     void drainRecoversLeftoverInflightFromAnInterruptedRound() {
         DirtyLedger d = new DirtyLedger(redis);
-        d.mark("player:1:profile");
+        d.mark(P1);
         d.drainToInflight();                 // 第一轮排空后「崩溃」，不 ack
-        d.mark("player:2:bag");              // 期间业务侧又标脏一个
+        d.mark(P2);                          // 期间业务侧又标脏一个
 
         // 下一轮 drain 必须把残留合回来，两者一起返回
         assertThat(d.drainToInflight())
-                .containsExactlyInAnyOrder("player:1:profile", "player:2:bag");
+                .containsExactlyInAnyOrder(P1, P2);
         assertThat(d.members()).isEmpty();
     }
 
@@ -84,26 +90,26 @@ class DirtyLedgerIT extends LocalRedisMongo {
     void concurrentMarkDuringFlushIsNotSwallowed() {
         // 落盘 spec §2.1 的回归测试：这正是被修订掉的「GET 后 SREM」会丢掉的东西
         DirtyLedger d = new DirtyLedger(redis);
-        d.mark("player:1:bag");
+        d.mark(P1_BAG);
         Set<String> snapshot = d.drainToInflight();
 
-        d.mark("player:1:bag");              // 落盘期间业务侧写了 v2，重新标脏
+        d.mark(P1_BAG);                      // 落盘期间业务侧写了 v2，重新标脏
         d.ackInflight(snapshot);             // 本轮落完 v1，只 ack 自己的快照
 
         // v2 的标记必须还在，下一轮会落它
-        assertThat(d.members()).containsExactly("player:1:bag");
+        assertThat(d.members()).containsExactly(P1_BAG);
         assertThat(d.inflightMembers()).isEmpty();
     }
 
     @Test
     void ackInflightRemovesOnlyThatChunk() {
         DirtyLedger d = new DirtyLedger(redis);
-        d.mark("player:1:profile");
-        d.mark("player:2:bag");
-        d.mark("guild:7:fund");
+        d.mark(P1);
+        d.mark(P2);
+        d.mark(G7);
         d.drainToInflight();
-        d.ackInflight(List.of("player:1:profile", "player:2:bag"));
-        assertThat(d.inflightMembers()).containsExactly("guild:7:fund");
+        d.ackInflight(List.of(P1, P2));
+        assertThat(d.inflightMembers()).containsExactly(G7);
     }
 
     @Test
@@ -117,16 +123,16 @@ class DirtyLedgerIT extends LocalRedisMongo {
     @Test
     void markAllPutsFailedKeysBackForRetry() {
         DirtyLedger d = new DirtyLedger(redis);
-        d.markAll(List.of("player:1:profile", "guild:7:fund"));
+        d.markAll(List.of(P1, G7));
         assertThat(d.members())
-                .containsExactlyInAnyOrder("player:1:profile", "guild:7:fund");
+                .containsExactlyInAnyOrder(P1, G7);
     }
 
     @Test
     void backlogSizeCountsDirtyOnly() {
         DirtyLedger d = new DirtyLedger(redis);
-        d.mark("player:1:profile");
-        d.mark("player:2:bag");
+        d.mark(P1);
+        d.mark(P2);
         assertThat(d.backlogSize()).isEqualTo(2);
         d.drainToInflight();
         assertThat(d.backlogSize()).isZero();   // 已排空，积压在 inflight 不算积压

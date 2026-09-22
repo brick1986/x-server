@@ -4,54 +4,68 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DataKeysTest {
 
 	@Test
 	void lockKeyFollowsEntityIdFormat() {
 		assertEquals("lock:player:7", DataKeys.lockKey("player", 7));
-		assertEquals("lock:guild:3", DataKeys.lockKey("guild", 3));
 	}
 
 	@Test
-	void keyComposesEntityIdField() {
-		assertEquals("player:123:profile", DataKeys.key("player", 123, "profile"));
-		assertEquals("guild:7:fund", DataKeys.key("guild", 7, "fund"));
+	void keyCarriesBucketPrefix() {
+		// 桶号由散列决定，只断言形状；具体桶号由分布测试（Task 3）管
+		String key = DataKeys.key("player", 123, "profile");
+		assertTrue(key.matches("\\{b\\d{4}\\}:player:123:profile"), key);
 	}
 
 	@Test
-	void entityOfParsesFirstSegment() {
-		assertEquals("player", DataKeys.entityOf("player:123:profile"));
-		assertEquals("guild", DataKeys.entityOf("guild:7:fund"));
+	void bucketOfReadsThePrefixBack() {
+		String key = DataKeys.key("guild", 7, "fund");
+		assertEquals(String.format("{b%04d}", DataKeys.bucketOf(key)), key.substring(0, 7));
 	}
 
 	@Test
-	void idOfParsesSecondSegmentAsLong() {
-		assertEquals(123L, DataKeys.idOf("player:123:profile"));
-		assertEquals(7L, DataKeys.idOf("guild:7:fund"));
+	void entityIdFieldRoundTrip() {
+		String key = DataKeys.key("player", 123, "bag");
+		assertEquals("player", DataKeys.entityOf(key));
+		assertEquals(123L, DataKeys.idOf(key));
+		assertEquals("bag", DataKeys.fieldOf(key));
 	}
 
 	@Test
-	void fieldOfParsesThirdSegment() {
-		assertEquals("profile", DataKeys.fieldOf("player:123:profile"));
-		assertEquals("fund", DataKeys.fieldOf("guild:7:fund"));
+	void collectionAndDocIdUnchanged() {
+		String key = DataKeys.key("player", 123, "profile");
+		assertEquals("player:profile", DataKeys.collectionOf(key));
+		assertEquals(123L, DataKeys.docIdOf(key));
 	}
 
 	@Test
-	void collectionOfIsEntityColonField() {
-		assertEquals("player:profile", DataKeys.collectionOf("player:123:profile"));
-		assertEquals("player:bag", DataKeys.collectionOf("player:123:bag"));
-		assertEquals("guild:fund", DataKeys.collectionOf("guild:7:fund"));
+	void bucketIsStableAndSharedByFieldsOfOneInstance() {
+		assertEquals(DataKeys.bucket("player", 5), DataKeys.bucket("player", 5));
+		// 同实例的全部 field 落同一桶（设计 §3.2）
+		assertEquals(DataKeys.bucketOf(DataKeys.key("player", 5, "bag")),
+				DataKeys.bucketOf(DataKeys.key("player", 5, "profile")));
 	}
 
 	@Test
-	void docIdOfIsId() {
-		assertEquals(123L, DataKeys.docIdOf("player:123:profile"));
+	void parseRejectsOldFormatKey() {
+		// 迁移依赖此行为：旧格式 key 一律拒绝（设计 §3.4、§7）
+		assertThrows(IllegalArgumentException.class, () -> DataKeys.entityOf("player:123:profile"));
+		assertThrows(IllegalArgumentException.class, () -> DataKeys.bucketOf("player:123:profile"));
 	}
 
 	@Test
-	void parseRejectsMalformedKey() {
+	void parseRejectsMalformedOrOutOfRangeBucket() {
 		assertThrows(IllegalArgumentException.class, () -> DataKeys.entityOf("no-colons"));
-		assertThrows(IllegalArgumentException.class, () -> DataKeys.idOf("player:notnum:profile"));
+		assertThrows(IllegalArgumentException.class,
+				() -> DataKeys.idOf("{b0041}:player:notnum:profile"));
+		assertThrows(IllegalArgumentException.class,
+				() -> DataKeys.bucketOf("{b9999}:player:1:profile"));   // ≥ BUCKETS
+		assertThrows(IllegalArgumentException.class,
+				() -> DataKeys.bucketOf("{bx041}:player:1:profile"));   // 非数字
+		assertThrows(IllegalArgumentException.class,
+				() -> DataKeys.bucketOf("b0041:player:1:profile"));     // 缺花括号
 	}
 }
