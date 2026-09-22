@@ -14,8 +14,8 @@ import java.util.concurrent.TimeUnit;
  * <p><b>{@code dbserver.dirty.backlog} 是最该配告警的那个</b>：它持续增长说明落盘跟不上写入，
  * 数据在 Redis 里越积越多、只有 AOF everysec 兜底。其余指标基本只在事后排障时有用。
  *
- * <p>backlog 是 gauge，每次抓取都会打一次 {@code SCARD}——落盘进程本身就在高频访问 Redis，
- * 这点额外开销可忽略。
+ * <p>backlog 与 buckets 两个 gauge 各自独立做一次 K-SCARD 扫描（gauge 抓取一次批量往返，
+ * 抓取间隔 15s 级别下开销可忽略）——落盘进程本身就在高频访问 Redis。
  */
 public class FlushMetrics {
 
@@ -43,6 +43,9 @@ public class FlushMetrics {
                 .register(registry);
         Gauge.builder("dbserver.dirty.backlog", dirty, DirtyLedger::backlogSize)
                 .description("dirty 积压量——持续增长说明落盘跟不上写入")
+                .register(registry);
+        Gauge.builder("dbserver.dirty.buckets", dirty, DirtyLedger::dirtyBucketCount)
+                .description("非空脏桶数——落盘健康的最先该看的信号，比成员数粗")
                 .register(registry);
     }
 

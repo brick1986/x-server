@@ -47,6 +47,20 @@ class FlushMetricsIT extends LocalRedisMongo {
     }
 
     @Test
+    void bucketsGaugeCountsNonEmptyBuckets() {
+        FlushOrchestrator o = orchestrator(500);
+        dirty.mark(PROFILE_1);
+        dirty.mark(BAG_2);
+        // 两个实例散进 1~2 个桶（确定性但依散列实现而定）
+        assertThat(registry.get("dbserver.dirty.buckets").gauge().value()).isBetween(1.0, 2.0);
+
+        new RedisStore(redis).set(PROFILE_1, "{}");
+        new RedisStore(redis).set(BAG_2, "[]");
+        o.flushOnce();
+        assertThat(registry.get("dbserver.dirty.buckets").gauge().value()).isZero();
+    }
+
+    @Test
     void roundRecordsTimerAndFlushedCount() {
         RedisStore r = new RedisStore(redis);
         FlushOrchestrator o = orchestrator(500);
