@@ -29,7 +29,7 @@ public final class CommitLua {
                 RScript.Mode.READ_WRITE,
                 SCRIPT,
                 RScript.ReturnType.LONG,
-                List.of(key, DirtyLedger.DIRTY_SET),
+                List.of(key, DirtyLedger.dirtySetOf(key)),
                 json);
     }
 }
