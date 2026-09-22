@@ -157,6 +157,8 @@ flushBatch(buffer 余量);
 //   4. stillHoldsLock(lock)                 // 失锁即中断，剩余留各桶 inflight（§2.3 恢复）
 ```
 
+> **勘误（随实现校正）**：上方第 4 步的失锁检查只在循环内每个**整批**落盘后执行；末尾余量批**刻意不查**——轮次到余量批即结束、其后再无任何写，补上检查唯一的效果是把已完成的轮误报成 INTERRUPTED。
+
 - Mongo 批跨桶聚合（保持 500/批的批量收益）；`markAll` / `ackInflight` 从 key 推导桶、分组下发；批内先 mark 后 ack 的顺序保持——崩溃于两步之间 = 整批下轮重放，upsert 幂等。
 - 中断 / 崩溃路径与现状完全同构：残留桶的成员留在该桶 inflight，下轮无条件 drain 合回。
 - `flushOnce` 三态返回值契约（0 / n / INTERRUPTED）不变；`FlushScheduler`、`GracefulShutdown` 结构零改动。
@@ -180,7 +182,7 @@ flushBatch(buffer 余量);
 | --- | --- |
 | `dbserver.flush.round / keys / failed / missing / skipped` | 不变 |
 | `dbserver.dirty.backlog` | 实现改为 §5.4 流水线聚合，名称与告警语义不变 |
-| `dbserver.dirty.buckets`（新增 gauge） | 非空桶数，同一次聚合顺带统计——最先该看的信号，比成员数粗、但零额外往返 |
+| `dbserver.dirty.buckets`（新增 gauge） | 非空桶数，独立的 K-SCARD 扫描（gauge 抓取一次批量往返）——最先该看的信号，比成员数粗 |
 
 ## 7. 迁移
 
@@ -195,8 +197,8 @@ flushBatch(buffer 余量);
 
 1. CRC16-XMODEM 实现正确性（已知测试向量）；
 2. **同槽断言**：任取桶号 b，`slot("{b%04d}::dirty") == slot("{b%04d}:player:123:profile") == slot("{b%04d}::dirty:inflight")`（遍历 4096 桶）——单机 IT 测不了 CROSSSLOT，Cluster 正确性就靠这条测试兜底；
-3. `bucket()` 分布：顺序 id / 块状分配（base + 1024·k）/ snowflake 型（高位变化）三种合成模式各 10 万身份，断言 max/mean ≤ 1.2；
-4. tag→slot 散布：4096 个 tag 去重后的 slot 数 ≥ 3600；按 16 路等分槽位区间模拟节点分配，失衡 ≤ 10%（期望 ~6.6%，留余量）；
+3. `bucket()` 分布：顺序 id / 块状分配（低 12 位恒定，恒 1024）/ snowflake 型（高位变化）三种合成模式各 10 万身份，断言 χ² < 2K 且 max ≤ 3×mean——100k 样本下均匀散列的期望 ≈ 1.7×mean、尾部抽样可到 2×，1.2 的口径统计上立不住（计划阶段修正）；
+4. tag→slot 散布：4096 个 tag 去重后的 slot 数 ≥ 3600；按 16 路等分槽位区间模拟节点分配，失衡 ≤ 12%（期望 ~6.6%，留余量；期望基数取去重 slot 数，比按 4096 计更严）；
 5. `DataKeys`：新文法 round-trip、旧格式拒绝、越界桶号拒绝、field 含冒号拒绝。
 
 **IT（沿用本地预起 Redis/Mongo 约定，见 DEVELOPMENT.md）：**
@@ -209,7 +211,7 @@ flushBatch(buffer 余量);
 
 ## 9. 实现期验证点与风险
 
-1. **Redisson 批量执行 EVAL 的机制**（RBatch 是否支持 script eval）——第一验证点，**实现计划排的第一件事就是把它验证掉**。若不支持：退回分批顺序 EVAL 并重新核算 K 与轮次预算（4096 × 单往返延迟须 ≤ 轮次间隔的一小半），或走 Redisson 底层连接的 pipeline。此项可能反过来调整 K 常量定值。
+1. **Redisson 批量执行 EVAL 的机制**（RBatch 是否支持 script eval）——第一验证点，**实现计划排的第一件事就是把它验证掉**。若不支持：退回分批顺序 EVAL 并重新核算 K 与轮次预算（4096 × 单往返延迟须 ≤ 轮次间隔的一小半），或走 Redisson 底层连接的 pipeline。此项可能反过来调整 K 常量定值。**已验证并落地（Task 4）**：未走 RBatch——`DirtyLedger.drainAll()` 以 `evalAsync` 异步扇出 K 条 EVAL、聚合等待，空库 4096 桶排空实测约 0.11s，K 定值未受影响。
 2. CRC16-XMODEM 的 Java 实现须与 Redis 服务端一致（向量测试；tag 提取规则一并在 Java 里复刻，才能在单测里算 slot）。
 3. `String.hashCode` 在真实 key 形态下的分布（§8.3 守卫；弱则换散列函数，文法不动）。
 4. K 条 EVAL 流水线的实测往返与耗时（≤ 轮次预算）。

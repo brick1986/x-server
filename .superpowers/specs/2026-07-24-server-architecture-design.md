@@ -88,6 +88,7 @@ Redis 权威 + Redis 标脏 + **独立进程异步落 Mongo** + **业务侧磁�
   - `player:{id}:bag` —— 背包，一个 JSON 数组。
   - `player:{id}:equipment` —— 装备，一个 JSON（视玩法可选拆分）。
   - 货币/库存等计数以 Redis 为权威。
+  - **物理 key 形态**：`{bNNNN}:{entity}:{id}:{field}`——`{bNNNN}` 是 Cluster hash tag（桶号 = hash(entity:id) mod 4096），提交与落盘协议靠它把数据 key 与同桶脏标记集合绑进同一 slot（见提交桶化设计 §3）。
 - **MongoDB 数据结构**：与 Redis key 一一对应的文档——`players` / `bags` / `equipments` 集合，每个玩家每类一个文档（`_id = 玩家ID`），文档体即 Redis 那份 JSON。**与 Redis 同构，落盘 = GET Redis JSON → upsert Mongo 文档，无重组**。留路：若背包膨胀逼近 Mongo 16MB 文档上限，再拆为每物品一文档（届时落盘需做"以 Redis 为准的整体同步：upsert 现有 + 删除多余"）。
 - **懒加载源**：登录仅载 `profile` 到 Redis；`bag`/`equipment` 按需从 Redis 拉，Redis 未命中则从 Mongo 加载并回填 Redis（Redis 权威，Mongo 冷源）。**读路径持锁**：读操作同样获取 `lock:{entity}:{id}`（读写共用同一把互斥 `RLock`），锁内完成 `GET` → miss 则从 Mongo 加载 → **普通 `SET` 回填**（持锁期间无并发写，无需 `SET NX`）→ 释放。回填进锁是消除丢失更新竞态的关键——否则不持锁回填会把持锁写的 v2 覆盖回从 Mongo 读到的 v1，污染 Redis 后再被落盘进程写回 Mongo，数据彻底丢失。
 
@@ -95,13 +96,13 @@ Redis 权威 + Redis 标脏 + **独立进程异步落 Mongo** + **业务侧磁�
 
 1. **覆盖写**：业务进程读 key 的 JSON → Java 内修改 → 构造完整新 JSON → 写回 Redis。写回用一个**极简 Lua**仅做 `SET key newjson; SADD dirty key`（**Lua 不解析 JSON**，只把"写数据 + 标脏"绑成一次原子往返）。标脏粒度**按 key 级**（见 4.3）。写路径读 key 时若 miss，须**在锁内从 Mongo 加载**再改（与读路径同源），不可假设 key 一定在 Redis。**提交门控**：执行提交 Lua 前强制 `isHeldByCurrentThread()` 校验，失锁即 abort、不写（见 §3.1）。
 2. **同实体写串行化（Redisson 分布式锁）**：覆盖写是"读-改-写"发生在 Java 侧、非 Redis 原子，故**同一实体的写操作必须跨进程串行**，否则并发覆盖会丢更新（如两次扣费/充值互相覆盖）。由 **Redisson 分布式锁 `lock:{entity}:{id}`** 保证（按实体粒度，读写共用同一把互斥 `RLock`），这是无状态 HTTP 横扩、不依赖 sticky 路由的前提，也保护所有同实体业务不变量，不额外增加 Redis 侧 CAS。锁租约固定 `leaseTime=10s`、禁用看门狗，提交前 `isHeld` 门控（见 §3.1）。
-3. **跨实体操作（转账/交易/工会捐献）**：不做跨 Key Lua（预防成熟期 Redis Cluster 报错）。**跨玩家**（同类型）采用**按 ID 序加双锁**（`lock:player:{min(A,B)}` + `lock:player:{max(A,B)}`，按固定顺序加锁防死锁）；**跨类型**（如玩家 + 工会）按**全局类型优先级**加锁（菜鸟期 `guild > player`，先加 guild 再加 player）。持锁期间完成**各实体的独立覆盖写**，各自由该实体锁保证单 key 正确，多锁使正常路径下跨 key 一致。写顺序：**先写业务日志（增量 + before/after 绝对值）→ 覆盖写 A → 覆盖写 B**。**中途崩溃不做自动恢复**——持锁崩溃后锁由 TTL 自然释放，若已写 A 未写 B 留下的不一致，靠业务日志事后人工对账补偿（见 4.2.4、4.4）。不引入自动重放，避免重放机制本身的复杂度与 bug 风险。
+3. **跨实体操作（转账/交易/工会捐献）**：跨 Key Lua 仅限**同一 hash tag（同一桶）内**的 key——提交侧 `SET+SADD` 的两键同桶，原子且 Cluster 合法（见提交桶化设计 §2/§4）；**跨实体实例**的原子操作仍然不做（不同桶无同 slot 保证，Cluster 报 CROSSSLOT）。**跨玩家**（同类型）采用**按 ID 序加双锁**（`lock:player:{min(A,B)}` + `lock:player:{max(A,B)}`，按固定顺序加锁防死锁）；**跨类型**（如玩家 + 工会）按**全局类型优先级**加锁（菜鸟期 `guild > player`，先加 guild 再加 player）。持锁期间完成**各实体的独立覆盖写**，各自由该实体锁保证单 key 正确，多锁使正常路径下跨 key 一致。写顺序：**先写业务日志（增量 + before/after 绝对值）→ 覆盖写 A → 覆盖写 B**。**中途崩溃不做自动恢复**——持锁崩溃后锁由 TTL 自然释放，若已写 A 未写 B 留下的不一致，靠业务日志事后人工对账补偿（见 4.2.4、4.4）。不引入自动重放，避免重放机制本身的复杂度与 bug 风险。
 4. **业务日志（关键操作，人工对账依据）**：扣费/合成/交易/充值/赠送等关键操作追加**业务侧详细日志**——磁盘 append-only 文件，**独立于 Redis 与 MongoDB**，先于返回客户端成功写盘。**日志定位为人工介入时的对账与补偿依据，不参与任何自动崩溃恢复**。每条记录 **增量 + before 绝对值 + after 绝对值**（如"A 扣 30，before 100，after 70"）——三者冗余便于人工核对，且**纯磁盘、不依赖 Redis 等第三方**，可独立离线审阅。不记整份 JSON 快照。
 
 ### 4.3 异步落盘（独立进程）
 
 - **落盘进程独立**：由**独立进程**（DBServer，非业务进程）扫描 Redis dirty 集合，异步落地到 MongoDB。落盘进程是 MongoDB 的**唯一写者**，串行化天然防覆盖，故不引入版本号乐观锁。留路：若未来落盘多实例并行，需重新引入版本号或按玩家分片归并。
-- **标脏粒度按 key 级**：dirty 集合成员为数据 key（如 `player:123:profile`），落盘进程 `SMEMBERS dirty` → 对每个 key `GET` JSON → upsert 对应 Mongo 文档 → 落盘成功后 `SREM`。改哪类落哪类，同玩家多个 dirty key 在同次扫描里合并 `bulkWrite`。
+- **标脏粒度按 key 级**：dirty 集合成员为数据 key（如 `{bNNNN}:player:123:profile`，按桶分片），落盘进程 `SMEMBERS dirty`（消费协议 2026-09-21 起为按桶排空，见落盘 spec §2 修订）→ 对每个 key `GET` JSON → upsert 对应 Mongo 文档 → 落盘成功后 `SREM`。改哪类落哪类，同玩家多个 dirty key 在同次扫描里合并 `bulkWrite`。
 - **落盘触发**：独立进程定时（1~3s）扫 dirty。**不做下线强刷**——玩家下线是业务进程本地事件，跨进程通知落盘进程强刷只省 1~3s 却引入跨进程调用，不值当；下线玩家数据等下一个落盘周期即可。停机场景的 dirty 全落由**DBServer优雅停机流程**保证。
 - **上线冷启动**：Redis 无数据则从 Mongo 加载到 Redis（Redis 权威，Mongo 是冷源）。
 - **批量落盘**：跨玩家 dirty key 合并为 `bulkWrite`，MongoDB Driver 5.9.0 原生支持，避免逐 key `updateOne` 的往返开销。

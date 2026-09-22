@@ -22,6 +22,12 @@
 
 ## 2. dirty 消费协议：排空到 in-flight 集合
 
+> **2026-09-21 修订**：全局 `{dirty}` / `{dirty}:inflight` 集合改为**按桶分片**的
+> `{bNNNN}::dirty` / `{bNNNN}::dirty:inflight`——桶号取自数据 key 的 hash tag 前缀，集合与
+> 数据 key 同 slot。§2.1–§2.4 的论证对每个桶原样成立（作用域从全局变单桶）；排空入口从
+> 「一次 drain」变为「每轮无条件排空全部 4096 个桶」。协议细节以
+> [提交桶化设计](./2026-09-21-commit-clusterslot-design.md) §5 为准。
+
 ### 2.1 被修订的问题：`SREM` 的丢标记窗口
 
 架构 §4.3 原文是「落盘成功后 `SREM`」。该协议存在会**永久丢数据**的窗口：
@@ -99,7 +105,7 @@ Cluster 的 hash tag 规则是「取第一个 `{` 与随后 `}` 之间的子串�
 
 **迁移**：本地开发/测试环境里已存在的旧 `dirty` 集合改名后会成为孤儿（不再被消费）。集成测试本就 `flushdb`，不受影响；手工环境需 `DEL dirty` 清理一次。`game-dbserver` 从未运行过，**不存在生产数据迁移问题**。
 
-#### 2.5.1 提交侧的 CROSSSLOT 是独立且更根本的障碍（本文不解决）
+#### 2.5.1 提交侧的 CROSSSLOT（已由提交桶化设计了结）
 
 hash tag 只消除了**落盘侧**（`{dirty}` ↔ `{dirty}:inflight`）的 slot 障碍。**提交侧仍有一个 hash tag 解决不了的**：`CommitLua` 的 KEYS 是 `(数据 key, dirty 集合)`，即 `player:123:profile` 与 `{dirty}` —— 二者在 Cluster 下必然不同 slot。
 
@@ -108,6 +114,8 @@ hash tag 只消除了**落盘侧**（`{dirty}` ↔ `{dirty}:inflight`）的 slot
 注意这与架构 §4.2「不做跨 Key Lua（预防成熟期 Redis Cluster 报错）」并不矛盾：那条针对的是**跨业务实体**的写（如转账同时改 A、B），而 `CommitLua` 的第二个 key 是基础设施用的脏标记集合，不是第二个业务实体。但从 CROSSSLOT 的角度，两者确实一样会报错——**架构 §4.2 的那句「预防 Cluster 报错」在 `CommitLua` 上并未实现兑现**。
 
 菜鸟期单机，不构成任何现实问题；此处仅记录该障碍的存在与形状，供成熟期上 Cluster 时评估。**本文不设计它**：它属于提交路径（`game-data` Plan B 已实现的部分），改动面远超落盘编排的范围。
+
+2026-09-21 起已由 [提交桶化设计](./2026-09-21-commit-clusterslot-design.md) 落地解决。
 
 ## 3. 批量策略：全量快照 + 分片流水线
 
@@ -119,14 +127,20 @@ hash tag 只消除了**落盘侧**（`{dirty}` ↔ `{dirty}:inflight`）的 slot
 故按固定分片（默认 500 key/片）**流水线**处理，内存与单次往返量只与分片大小相关、与总量无关：
 
 ```java
-Set<String> keys = dirtyLedger.drainToInflight();
-for (List<String> chunk : partition(keys, chunkSize)) {
-    Map<String, String> vals = redisStore.mget(chunk);      // 一次往返；返回即还 Redis 连接
-    Set<String> failed = mongoStore.bulkUpsert(vals);       // unordered，见 §4
-    if (!failed.isEmpty()) dirtyLedger.markAll(failed);     // §2.4 顺序
-    dirtyLedger.ackInflight(chunk);                         // §2.4 顺序
-    if (!lock.isHeldByCurrentThread()) return INTERRUPTED;  // §5
-}
+// 2026-09-21 桶化后为两段流水线（骨架；结构与语义以提交桶化设计 §5.3 为准，粒度从「片」改为「批」）：
+Map<Integer, Set<String>> drained = dirtyLedger.drainAll();  // 第一段：4096 桶无条件排空（异步扇出，空桶 no-op）
+if (drained 成员总数 == 0) return 0;
+Batch batch;                                                 // 第二段：逐桶 MGET（同桶同 slot），
+for (var e : drained.entrySet())                             //   值跨桶聚成 500/批的 Mongo 批
+    for (List<String> mchunk : chunks(e.getValue(), chunkSize)) {
+        batch.add(mchunk, redisStore.mget(mchunk));          // 一次往返；返回即还 Redis 连接
+        while (batch.isFull()) {
+            flushBatch(batch);                                // bulkUpsert（unordered，§4）→ markAll(失败)
+                                                              // → ackInflight(整批)：§2.4 顺序、按桶分组
+            if (!stillHoldsLock(lock)) return INTERRUPTED;   // §5——每个整批之后检查
+        }
+    }
+flushBatch(batch 余量);                                      // 末批刻意不查锁：轮到此为止、其后无写
 ```
 
 ### 3.1 `flushOnce()` 的返回值契约
@@ -252,32 +266,43 @@ Actuator + Micrometer 指标（架构 §6 已钉定 Actuator，`game-dbserver` �
 | 失败 key 数 | counter | 毒丸告警（§4） |
 | nil key 数 | counter | key 被删而标记残留（§3） |
 | `dirty` 积压量 | **gauge** | **最该看的告警项**——持续增长说明落盘跟不上写入 |
+| 非空桶数（`dbserver.dirty.buckets`） | **gauge** | 桶化后最先看的健康信号，比积压量粗一级；对全部 4096 桶的独立 SCARD 扫描（2026-09-21 随桶化落地） |
 | 跳过轮次数 | counter | 抢不到 Redis 锁（热备正常，主实例异常） |
 
 沿用架构 §6 的 Logback + MDC 链路日志（模块 §3.5：dbserver 自带、不依赖 `game-web`）。
 
-> 状态注记：上表六项指标已随本计划落地；Logback + MDC 链路日志**未随本计划交付**——其 MDC
-> 填充源（userId 等）在 `game-web` 横切（Plan C 的余下部分），将随那部分工作一并落地。
+> 状态注记：上表前六项指标已随本计划落地，非空桶数一行随 2026-09-21 提交桶化落地；Logback + MDC
+> 链路日志**未随本计划交付**——其 MDC 填充源（userId 等）在 `game-web` 横切（Plan C 的余下部分），
+> 将随那部分工作一并落地。
 
 ## 8. `game-data` 的改动
 
-三个类，均在原语设计 §8 明说的「落盘进程消费」职责内，不越 `game-data` 边界（仍不认识任何业务实体）：
+> **2026-09-21 修订**：随提交桶化（[提交桶化设计](./2026-09-21-commit-clusterslot-design.md) §3–§5），
+> `DataKeys` / `CommitLua` / `DirtyLedger` 按桶协议改写；`RedisStore` / `MongoStore` 本次未再改动。
 
-**`DirtyLedger`** — 新增 3 个方法：
+五个类，不越 `game-data` 边界（仍不认识任何业务实体）：`DataKeys` / `CommitLua` 为提交与落盘共用（提交桶化设计 §3–§4），`DirtyLedger` / `RedisStore` / `MongoStore` 在原语设计 §8 明说的「落盘进程消费」职责内。
+
+**`DataKeys`** — key 文法桶化：`key()` 产出 `{bNNNN}:{entity}:{id}:{field}`，桶号 = `hash(entity:id)` 取模 `BUCKETS = 4096`（协议常量，改 K = 全量数据重写）；新增 `bucketOf(key)` 供 `CommitLua` / `DirtyLedger` 从 key 推导桶；`parts()` 剥前缀后按原规则校验，**旧格式 key（无桶前缀）直接拒绝**——迁移依赖此行为。
+
+**`CommitLua`** — SCRIPT 一字不改，KEYS[2] 从 `DIRTY_SET` 常量改为 `DirtyLedger.dirtySetOf(key)` 按数据 key 推导同桶脏集合（与数据 key 同 slot，Cluster 合法）；对外签名与全部调用方零改动。
+
+**`DirtyLedger`** — 桶化重写（原「单集合 + 新增 3 个方法」的 Plan C 形态就此终结）：
 
 | 方法 | 实现 | 语义 |
 | --- | --- | --- |
-| `drainToInflight()` → `Set<String>` | §2.2 的 Lua，一次往返 | 恢复残留 + 原子排空 + 返回快照 |
-| `ackInflight(Collection<String>)` | `SREM` inflight | 一片落盘完成（§2.4 第 2 步） |
-| `markAll(Collection<String>)` | `SADD` dirty | 失败 key 回写（§2.4 第 1 步） |
+| `drainAll()` → `Map<Integer, Set<String>>` | 4096 桶 `evalAsync` 异步扇出 DRAIN_SCRIPT、聚合等待 | 每轮排空入口：合回残留 + 原子排空 + 返回桶号→快照（只含非空桶） |
+| `drainToInflight(int bucket)` | 单桶同步 EVAL | 测试/诊断用；生产轮次走 `drainAll()` |
+| `dirtySetOf(int)` / `dirtySetOf(String)` / `inflightSetOf(int)`（静态） | 格式化 `{bNNNN}::dirty` / `{bNNNN}::dirty:inflight`；String 重载经 `bucketOf(key)` 推导 | 集合名唯一来源，`CommitLua` 引用自动跟随 |
+| `markAll(Collection<String>)` | 按 key 推导桶、分组 `SADD` 回各自 dirty | 失败 key 回写（§2.4 第 1 步） |
+| `ackInflight(Collection<String>)` | 按桶分组 `SREM` 出各自 inflight | 一批落盘完成（§2.4 第 2 步） |
+| `backlogSize()` / `dirtyBucketCount()` | 4096 桶 SCARD 扇出聚合 | 积压量 / 非空桶数——§7.1 两个 gauge，各自独立扫描 |
+| `inflightMembers()` | 4096 桶 SMEMBERS 聚合 | 仅停机日志用 |
 
-key 名同时按 §2.5 改定：`DIRTY_SET` 由 `"dirty"` 改为 `"{dirty}"`，新增 `INFLIGHT_SET = "{dirty}:inflight"`。二者与 `DIRTY_SET` 同为唯一来源（`CommitLua` 引用同一常量，自动跟随）。
+**`RedisStore`** — `mget(List<String>)` → `Map<String,String>`：用 `client.getBuckets(StringCodec.INSTANCE)` 一次往返取多 key。**必须与现有 `get`/`set` 保持同一个 `StringCodec`**，否则读到的是带引号的 JSON（现有类注释已记录该坑）。桶化后由编排保证一次 `mget` 的成员同桶同 slot（§3 第二段），Cluster 下单条命令合法。
 
-**`RedisStore`** — 新增 `mget(List<String>)` → `Map<String,String>`：用 `client.getBuckets(StringCodec.INSTANCE)` 一次往返取多 key。**必须与现有 `get`/`set` 保持同一个 `StringCodec`**，否则读到的是带引号的 JSON（现有类注释已记录该坑）。
+**`MongoStore`** — `bulkUpsert` 签名 `void` → `Set<String>`（失败 key 集合）：加 `ordered(false)`；捕 `MongoBulkWriteException`，按 §4 的 index 语义反查 key；其它 `MongoException` 原样抛出。桶化不触及它——跨桶聚合的批按 collection 分组照旧。
 
-**`MongoStore`** — `bulkUpsert` 签名 `void` → `Set<String>`（失败 key 集合）：加 `ordered(false)`；捕 `MongoBulkWriteException`，按 §4 的 index 语义反查 key；其它 `MongoException` 原样抛出。
-
-> `bulkUpsert` 返回值变更会波及现有调用方与测试——落地时按 blast radius 同步更新。
+> `bulkUpsert` 返回值变更曾波及现有调用方与测试——落地时已按 blast radius 同步更新。
 
 ## 9. 测试
 
