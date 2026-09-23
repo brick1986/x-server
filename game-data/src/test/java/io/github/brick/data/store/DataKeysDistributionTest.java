@@ -16,7 +16,7 @@ class DataKeysDistributionTest {
     void bucketSpreadSurvivesSequentialBlockAndSnowflakeIds() {
         // 三种 id 生成形态都不许把数据偏到少数桶（设计 §3.2/§8.3）
         assertSpread(i -> i);                            // 顺序 id
-        assertSpread(i -> 10_000_000_000L + i * 4096L);  // 块状分配：低 12 位恒 0
+        assertSpread(i -> 10_000_000_000L + i * 4096L);  // 块状分配：低 12 位恒定（恒 1024）
         assertSpread(i -> i << 22);                      // snowflake 型：低位全 0、高位变化
     }
 

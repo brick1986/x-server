@@ -28,7 +28,7 @@ import java.util.concurrent.CompletableFuture;
  * 进新一轮，物理隔离；in-flight 残留由下一轮 {@link #drainAll()} 的恢复步骤合回，
  * 恢复路径唯一。**刻意不提供「清空 inflight」的方法**：inflight 非空却被 DEL，正是丢标记。
  *
- * <p><b>每轮无条件排空全部 {@link DataKeys#BUCKETS} 个桶**（提交桶化设计 §5.2）：不做
+ * <p><b>每轮无条件排空全部 {@link DataKeys#BUCKETS} 个桶</b>（提交桶化设计 §5.2）：不做
  * 「先探测非空再排空」——中断轮次的桶只剩 inflight 残留（dirty 已被 RENAME 走），探测
  * dirty 键会漏掉它们，残留永远等不到合回。空桶的 drain 是微秒级 no-op，自带探测。K 个桶的
  * 批量操作用异步接口扇出、聚合等待，不逐桶串行往返（测试连接池 8 也能几十毫秒扫完）。

@@ -70,8 +70,9 @@ in-flight    {bNNNN}::dirty:inflight              同上
 public static final int BUCKETS = 4096;
 
 static int bucket(String entity, long id) {
-    String identity = entity + ":" + id;               // 散列对象是逻辑身份整串
-    return Math.floorMod(identity.hashCode(), BUCKETS);
+    int h = (entity + ":" + id).hashCode();           // 散列对象是逻辑身份整串
+    h ^= h >>> 16;                                    // 高 16 位异或进低位，防块状/snowflake id 低位聚集（§8.3 分布测试三模式靠它）
+    return Math.floorMod(h, BUCKETS);
 }
 
 public static String key(String entity, long id, String field) {
@@ -219,7 +220,7 @@ flushBatch(buffer 余量);
 ## 10. 既有 spec 修订清单（随实现落地）
 
 - **架构 spec（2026-07-24）**：
-  - §3.1 key 约定改为 `{bNNNN}:{entity}:{id}:{field}`，指向本文 §3；
+  - §4.1 key 约定改为 `{bNNNN}:{entity}:{id}:{field}`，指向本文 §3；
   - §4.2「不做跨 Key Lua」修订为「**Lua 仅限同一 hash tag（同一桶）内的 key**；跨实体实例的原子操作仍然不做」——落盘 spec §2.5.1 指出的「该条在 `CommitLua` 上未兑现」自此了结。
 - **落盘 spec（2026-09-04）**：
   - §2 消费协议按桶重述（以本文 §5 为准）；§2.5 的 hash tag 论证从「两个集合名」扩展为「数据 key + 集合键的全套文法」；§2.5.1 标注「已由本文了结」；
