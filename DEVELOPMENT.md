@@ -41,6 +41,9 @@ mongosh --eval "db.runCommand({ping:1})"   # 期望 { ok: 1 }
 ## 三、运行时配置（装完顺手设）
 
 - **Redis（Memurai）**：spec §4.4 要求 AOF `everysec`。在 `memurai.conf` 设 `appendonly yes`、`appendfsync everysec`，重启服务。
+- **数据 key 自 2026-09-21 起带 `{bNNNN}` 桶前缀**（提交桶化设计）。旧格式 key 会被
+  `DataKeys` 拒绝——本地/测试 Redis 请 `FLUSHDB` 一次，数据由冷启动路径（get miss 从
+  Mongo 加载回填）自然回灌；Mongo 零迁移。
 - **MongoDB**：默认服务自启，无需特殊配置。
 - **环境变量**：`JAVA_HOME` → JDK 25 目录；`PATH` 追加 JDK `bin`、Maven `bin`。
 
