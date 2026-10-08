@@ -62,7 +62,10 @@ class MongoSegmentLeaserIT extends LocalRedisMongo {
                 fs.add(pool.submit(() -> {
                     go.await();
                     for (int i = 0; i < 100; i++) {
-                        synchronized (ends) { ends.add(l.lease("idgen:1:player", 10)); }
+                        // 租段必须在监视器外做：lease 处于 synchronized 内时两 worker 互斥，
+                        // 任意时刻最多一个 findOneAndUpdate 在飞——200 次租段实际串行，测不出并发不重叠
+                        long end = l.lease("idgen:1:player", 10);
+                        synchronized (ends) { ends.add(end); }
                     }
                     return null;
                 }));
