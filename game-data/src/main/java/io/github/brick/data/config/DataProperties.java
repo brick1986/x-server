@@ -1,5 +1,6 @@
 package io.github.brick.data.config;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -58,6 +59,32 @@ public class DataProperties {
     /** 固定租约、无看门狗（并发修订 §4.1）。 */
     @Min(1)
     private long lockLeaseSeconds = 10L;
+
+    /** 发号器配置（发号 spec §5.1）。嵌套类校验必须 @Valid 级联，否则 Min/Max 静默失效。 */
+    @Valid
+    private final Idgen idgen = new Idgen();
+
+    public Idgen getIdgen() { return idgen; }
+
+    /**
+     * id 位型与租段参数。server-id 是协议常量级决定——进 id 高 16 位，改它 = 全量数据
+     * 重写（发号 spec §3）；segment-size 应对突发（开服买量窗口临时调大，发号 spec §4.2）。
+     */
+    public static class Idgen {
+
+        /** 服号。大区制不改默认值（1 号服）；滚服制开新服时改，且两服不得同库同号（自检兜底）。 */
+        @Min(1) @Max(65535)
+        private int serverId = 1;
+
+        /** 租段步长。低频顶层实体 100 足够（发号 spec §4.2 的突发口径）。 */
+        @Min(1) @Max(1_000_000)
+        private int segmentSize = 100;
+
+        public int getServerId() { return serverId; }
+        public void setServerId(int v) { serverId = v; }
+        public int getSegmentSize() { return segmentSize; }
+        public void setSegmentSize(int v) { segmentSize = v; }
+    }
 
     public String getRedisAddress() { return redisAddress; }
     public void setRedisAddress(String v) { this.redisAddress = v; }

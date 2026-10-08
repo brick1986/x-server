@@ -5,6 +5,10 @@ import com.mongodb.MongoClientSettings;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import io.github.brick.data.codec.JsonCodec;
+import io.github.brick.data.idgen.IdGenerator;
+import io.github.brick.data.idgen.MongoSegmentLeaser;
+import io.github.brick.data.idgen.MongoServerIdGuard;
+import io.github.brick.data.idgen.SegmentIdGenerator;
 import io.github.brick.data.lock.EntityPriorities;
 import io.github.brick.data.lock.LockScope;
 import io.github.brick.data.lock.RedissonLockScope;
@@ -109,5 +113,19 @@ public class DataAutoConfiguration {
         return new RedissonLockScope(c, rs, ms, cl, jc,
                 p.getLockWaitMillis(), p.getLockLeaseSeconds(),
                 priorities.byEntity());
+    }
+
+    /**
+     * 发号器（发号 spec §4/§5）：号段模式，Mongo counters 账本。发号不依赖锁，
+     * 锁内锁外皆可调用。bean 创建只做 new（懒），不触达 Mongo——服号自检挂在首次
+     * 发号路径（对齐 primitives §3.4 懒连接，保证装配测试无需 live Mongo）。
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    IdGenerator idGenerator(MongoClient c, DataProperties p) {
+        DataProperties.Idgen cfg = p.getIdgen();
+        return new SegmentIdGenerator(cfg.getServerId(), cfg.getSegmentSize(),
+                new MongoSegmentLeaser(c, p.getMongoDb()),
+                new MongoServerIdGuard(c, p.getMongoDb()));
     }
 }

@@ -1,6 +1,7 @@
 package io.github.brick.data.config;
 
 import io.github.brick.data.codec.JsonCodec;
+import io.github.brick.data.idgen.IdGenerator;
 import io.github.brick.data.lock.EntityPriorities;
 import io.github.brick.data.lock.LockScope;
 import io.github.brick.data.overlay.CommitLua;
@@ -43,6 +44,7 @@ class DataAutoConfigurationTest {
 				.hasSingleBean(MongoStore.class)
 				.hasSingleBean(CommitLua.class)
 				.hasSingleBean(DirtyLedger.class)
+				.hasSingleBean(IdGenerator.class)
 				.hasSingleBean(JsonCodec.class));
 	}
 
@@ -54,6 +56,46 @@ class DataAutoConfigurationTest {
 			assertThat(p.getMongoPoolSize()).isBetween(50, 100);
 			assertThat(p.getLockLeaseSeconds()).isEqualTo(10L);   // 固定租约无看门狗
 		});
+	}
+
+	@Test
+	void idgenDefaultsBound() {
+		runner.run(ctx -> {
+			DataProperties.Idgen idgen = ctx.getBean(DataProperties.class).getIdgen();
+			assertThat(idgen.getServerId()).isEqualTo(1);        // 大区制默认 1 号服
+			assertThat(idgen.getSegmentSize()).isEqualTo(100);
+		});
+	}
+
+	@Test
+	void idgenValuesBound() {
+		runner.withPropertyValues(
+						"game.data.idgen.serverId=7",
+						"game.data.idgen.segmentSize=10000")
+				.run(ctx -> {
+					DataProperties.Idgen idgen = ctx.getBean(DataProperties.class).getIdgen();
+					assertThat(idgen.getServerId()).isEqualTo(7);
+					assertThat(idgen.getSegmentSize()).isEqualTo(10000);
+				});
+	}
+
+	// 服号越界必须启动失败——协议常量的显式设限不能只活在注释里
+	@Test
+	void rejectsServerIdBelowFloor() {
+		runner.withPropertyValues("game.data.idgen.serverId=0")
+				.run(ctx -> assertThat(ctx).hasFailed());
+	}
+
+	@Test
+	void rejectsServerIdAboveCeiling() {
+		runner.withPropertyValues("game.data.idgen.serverId=65536")
+				.run(ctx -> assertThat(ctx).hasFailed());
+	}
+
+	@Test
+	void rejectsSegmentSizeBelowFloor() {
+		runner.withPropertyValues("game.data.idgen.segmentSize=0")
+				.run(ctx -> assertThat(ctx).hasFailed());
 	}
 
 	// 业务模块登记了实体优先级 → LockScope 可用，且用的就是业务侧那张表
