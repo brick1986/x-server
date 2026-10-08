@@ -103,7 +103,7 @@ public interface IdGenerator {
 
 - 位置：`io.github.brick.data.idgen`（接口 + 实现），`DataAutoConfiguration` 装配，沿用 `EntityPriorities` 的边界思路——业务词只出现在调用方参数里，底层零业务 import（primitives §6，`game-data 不认识业务实体`）。
 - `next` 的典型调用点在业务侧：注册 `next("account")`、创角 `next("player")`；**发号不持 Redis 实体锁**——号段原子性由 Mongo 保证，与 `LockCtx` 无关，`next` 可以在锁外调用（创角流程里先拿号、再进锁写文档）。
-- 参数校验：`name` 非空、不含 `:`（防拼进 counter 名后解析歧义）；`count` ∈ [1, 段长上限]。
+- 参数校验：`name` 非空、不含 `:`（防拼进 counter 名后解析歧义）、**不为保留字 `boot`**（服号身份文档与实体 counter 同居 `counters` 集合，防撞名，见 §5.2）；`count` ∈ [1, 段长上限]。
 
 ### 5.1 配置
 
@@ -116,8 +116,8 @@ public interface IdGenerator {
 
 ### 5.2 服号自检
 
-- 启动时往 `counters` 写一条身份文档 `idgen:{serverId}:boot`（内容：首次启动时间戳）。
-- 启动校验：若本库 counters 中已存在**其他** serverId 的 `boot` 文档 → **启动失败**（同一个库被两个服号交替使用 = 配置漂移，位型前提被破坏，fail-fast 而非带病运行）。
+- **首次发号时执行一次（懒）**：往 `counters` 写一条身份文档 `idgen:{serverId}:boot`（内容：首次启动时间戳，`$setOnInsert` 幂等）。不做启动期校验，理由有二：其一，装配测试（`ApplicationContextRunner`）不连 live Mongo 是 `game-data` 的既有约束——自检挂进装配期会让 `DataAutoConfigurationTest` 一类测试被迫起库；其二，对齐 primitives §3.4 懒连接哲学——bean 创建只做 `new`，首次操作才触达外部依赖（Redisson `lazyInitialization` 同款取舍）。
+- 自检内容：若本库 counters 中已存在**其他** serverId 的 `boot` 文档 → **首次发号失败**（同一个库被两个服号交替使用 = 配置漂移，位型前提被破坏，fail-fast 而非带病运行）。fail-fast 语义不变——首次发号必然在部署最早期（注册/创角先拿号再进锁，§5），配错服号同样在第一个请求上炸出来，不会带病运行。
 - 诚实记录：两个**独立**的服（各自独立的 Mongo）被运维配了同一个号，自检测不到——这层靠运维纪律，代码防不住。
 
 ## 6. 多角色口径（账号与角色分开发号）
@@ -164,8 +164,8 @@ public interface IdGenerator {
 4. **并发租段不重叠**：两个 `IdGenerator` 实例（同库同 counter）并发 `next` × 各 1000，断言 2000 个 id 无一重复；
 5. `lease` 返回段正确、段内无重号、账本只增不减；
 6. 实例重建（模拟重启）后继续发号不重号（丢段只产生空洞）；
-7. server-id 自检：库内存在其他服号的 boot 文档 → 启动失败；
-8. `game-data 不认识业务实体`：ArchUnit 禁 `io.github.brick.data.idgen` import 业务域包（沿用 primitives §7.9 手法）。
+7. server-id 自检：库内存在其他服号的 boot 文档 → 首次发号失败（懒自检，见 §5.2）；
+8. `game-data 不认识业务实体`：既有 `DependencyRuleTest` 的 `io.github.brick.data..` 依赖规则天然覆盖 `idgen` 包，无新增用例（ArchUnit 手法沿用 primitives §7.9）。
 
 ## 9. 既有 spec 修订清单（随实现落地）
 

@@ -14,6 +14,9 @@ import java.util.regex.Pattern;
  * Cluster 下合法（提交桶化设计 §2/§3）。桶号由 {@link #bucket(String, long)} 从逻辑身份整串
  * 散列得出；{@link #BUCKETS} 是协议常量，**改它等于全量数据重写**（提交桶化设计 §3.3）。
  *
+ * <p><b>id 的位型与生成</b>另有唯一出处：发号 spec（{@code 2026-09-24-id-generator-design.md}）
+ * §3——{@code (serverId << 32) | seq}，与 {@code BUCKETS} 同属协议常量，改即全量数据重写。
+ *
  * <p>只提供**与实体无关**的组装与解析。不含 {@code playerProfile()} 一类便捷方法——
  * {@code player}/{@code profile} 属业务词汇，放这里会让「game-data 不认识业务实体」
  * （primitives §6）失守。业务侧用 {@link #key(String, long, String)} 或自建常量类。

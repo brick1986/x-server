@@ -89,6 +89,7 @@ Redis 权威 + Redis 标脏 + **独立进程异步落 Mongo** + **业务侧磁�
   - `player:{id}:equipment` —— 装备，一个 JSON（视玩法可选拆分）。
   - 货币/库存等计数以 Redis 为权威。
   - **物理 key 形态**：`{bNNNN}:{entity}:{id}:{field}`——`{bNNNN}` 是 Cluster hash tag（桶号 = hash(entity:id) mod 4096），提交与落盘协议靠它把数据 key 与同桶脏标记集合绑进同一 slot（见提交桶化设计 §3）。
+  - **`{id}` 的位型与生成**：唯一出处见发号 spec（2026-09-24）§3——16 位服号 + 32 位流水，`(serverId << 32) | seq`，协议常量级决定（改动即全量数据重写，同 `BUCKETS` 性质）。
 - **MongoDB 数据结构**：与 Redis key 一一对应的文档——`players` / `bags` / `equipments` 集合，每个玩家每类一个文档（`_id = 玩家ID`），文档体即 Redis 那份 JSON。**与 Redis 同构，落盘 = GET Redis JSON → upsert Mongo 文档，无重组**。留路：若背包膨胀逼近 Mongo 16MB 文档上限，再拆为每物品一文档（届时落盘需做"以 Redis 为准的整体同步：upsert 现有 + 删除多余"）。
 - **懒加载源**：登录仅载 `profile` 到 Redis；`bag`/`equipment` 按需从 Redis 拉，Redis 未命中则从 Mongo 加载并回填 Redis（Redis 权威，Mongo 冷源）。**读路径持锁**：读操作同样获取 `lock:{entity}:{id}`（读写共用同一把互斥 `RLock`），锁内完成 `GET` → miss 则从 Mongo 加载 → **普通 `SET` 回填**（持锁期间无并发写，无需 `SET NX`）→ 释放。回填进锁是消除丢失更新竞态的关键——否则不持锁回填会把持锁写的 v2 覆盖回从 Mongo 读到的 v1，污染 Redis 后再被落盘进程写回 Mongo，数据彻底丢失。
 

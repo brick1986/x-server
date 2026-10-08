@@ -121,6 +121,8 @@ lock/    LockScope          lockAll(List<LockReq>) → LockCtx 实现入口
 overlay/ CommitLua         原子脚本 SET key newjson; SADD dirty key（不解析 JSON）
          DirtyLedger       SADD/SMEMBERS/SREM（落盘进程消费，见 Plan C）
 codec/   JsonCodec         POJO↔JSON 序列化工具（不持有任何业务实体类）
+idgen/   IdGenerator       号段发号（next/lease）：无爹实体的 id 来源（发号 spec 2026-09-24）
+         SegmentIdGenerator 内存段发号 + MongoSegmentLeaser/MongoServerIdGuard（counters 账本）
 ```
 
 ### 3.1 `LockCtx` 内部职责

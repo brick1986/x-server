@@ -9,7 +9,7 @@ import org.bson.Document;
 /**
  * Mongo counters 账本（发号 spec §4.1）。
  *
- * <p>counters 是基础设施元数据，**不是实体数据**：不进 Redis、不走 CommitLua/dirty
+ * <p>counters 是基础设施元数据，而非实体数据：不进 Redis、不走 CommitLua/dirty
  * 流水线、不受 flushdb 影响，{@code game-dbserver} 对它无感知。账本只增不减，因此
  * 发号器不存在恢复链——Redis 丢什么都与发号无关。这同时是否决 Redis INCR 方案的理由
  * （发号 spec §2：Redis 丢账本从 Mongo max 回种有 1~3s 落盘滞后窗口，重号即覆盖）。
