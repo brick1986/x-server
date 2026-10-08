@@ -18,6 +18,8 @@
 | [2026-08-05-module-breakdown-design.md](./2026-08-05-module-breakdown-design.md) | 2026-08-05 | 模块设计 | 已落地（模块骨架） | 菜鸟期 5 模块划分、职责、依赖规则（架构 §8 待定项的基础设施部分） |
 | [2026-08-11-game-data-primitives-design.md](./2026-08-11-game-data-primitives-design.md) | 2026-08-11 | 模块内设计（Plan B） | 已实现（代码 + 集成测试已合并） | `game-data` 数据原语：LockScope / LockCtx / CommitLua / DirtyLedger / JsonCodec 对外 API 与内部规格 |
 | [2026-09-04-dbserver-flush-design.md](./2026-09-04-dbserver-flush-design.md) | 2026-09-04 | 模块内设计（Plan C 之一）；含对架构 §4.3 的修订 | ✅ 已实现并合并（plan: `2026-09-04-dbserver-flush.md`） | `game-dbserver` 落盘编排：dirty 消费协议 / 分片流水线 / 失败语义 / 单实例保证 / 优雅停机 |
+| [2026-09-21-commit-clusterslot-design.md](./2026-09-21-commit-clusterslot-design.md) | 2026-09-21 | 修订文档；了结落盘 spec §2.5.1 搁置的提交侧 CROSSSLOT | ✅ 已实现并合并 | 脏标记从全局 `{dirty}` 改为与数据 key 同 slot 的分桶集合，提交 Lua 在 Redis Cluster 下合法 |
+| [2026-09-24-id-generator-design.md](./2026-09-24-id-generator-design.md) | 2026-09-24 | 模块内设计 | 已实现（feature 分支待合并） | `game-data` 发号原语 `IdGenerator`（号段模式，Mongo counters 账本）与 uid 位型钉死 |
 
 > 执行计划（非 spec）位于 `.superpowers/plans/`：`2026-08-05-module-skeleton.md`、`2026-08-13-game-data-primitives.md`、`2026-09-04-dbserver-flush.md`。specs 只放设计决策，plans 放落地步骤。
 
@@ -134,6 +136,7 @@ game-data / game-contract → 不依赖任何业务模块
 | 理解模块边界与依赖规则 | [模块清单与依赖规则设计](./2026-08-05-module-breakdown-design.md) |
 | 改数据层 / 锁 / 落盘相关代码 | [并发正确性修订](./2026-08-04-data-concurrency-fixes-design.md) + [game-data 原语设计](./2026-08-11-game-data-primitives-design.md)（+ 对应 plan） |
 | 改落盘 / dirty 集合相关代码 | [落盘编排设计](./2026-09-04-dbserver-flush-design.md)（权威，含对架构 §4.3 的修订）+ [模块设计 §3.5](./2026-08-05-module-breakdown-design.md) |
+| 改发号 / id 生成相关代码 | [发号原语与 uid 位型设计](./2026-09-24-id-generator-design.md) |
 | 实现 Plan C 的 web 横切部分 | [模块设计 §3.4](./2026-08-05-module-breakdown-design.md) + [原语设计 §8（范围）](./2026-08-11-game-data-primitives-design.md) |
 | 了解实时玩法 | [实时玩法 WS 设计](./2026-07-24-realtime-gameplay-ws-design.md)（独立里程碑） |
 

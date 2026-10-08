@@ -15,7 +15,8 @@ public interface IdGenerator {
 
     /**
      * 批量租号段 [start, start+count)，返回 start。绕过本地段直租账本，全服邮件用
-     * （发号 spec §4.2）；本地段未发完的剩余作废——空洞无害，跳号不是重号。
+     * （发号 spec §4.2）；lease 与本地段互不干扰：本地段未发完的剩余照常由 {@code next}
+     * 发出，账本只增，两个区间天然不重叠。
      */
     long lease(String name, int count);
 }

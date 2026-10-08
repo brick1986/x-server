@@ -21,7 +21,9 @@ import java.util.regex.Pattern;
  */
 public final class MongoServerIdGuard implements ServerIdGuard {
 
-    private static final Pattern BOOT = Pattern.compile("^idgen:\\d+:boot$");
+    /** 用 \z 而非 $：该 Pattern 发给 Mongo 按 PCRE 执行，PCRE 的 $ 还匹配尾部换行前
+     *  ——next("boot\n") 创建的 counter 会被误判为 boot 标记；\z 是纯串尾。 */
+    private static final Pattern BOOT = Pattern.compile("^idgen:\\d+:boot\\z");
 
     private final MongoCollection<Document> counters;
 

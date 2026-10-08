@@ -149,6 +149,7 @@ idgen/   IdGenerator       号段发号（next/lease）：无爹实体的 id 来
 - Redis 连接池 100~200、Mongo 连接池 50~100（架构 §3.1，显式设限，禁止无上限）。每池大小按**该池自身峰值并发需求**定，不与载体线程池绑定。
 - 载体线程池用 JDK 25 默认（基于 CPU 核数）。
 - **禁嵌套跨池获取**（并发修订 §3.2）：一个虚拟线程绝不同时持有两个连接池的连接。`ctx.get` 的 `GET` Redis（还）→ miss 则 `LOAD` Mongo（还）→ `SET` Redis 回填（还），每步独立借还，天然不嵌套。`ctx.put` 的 `SET+SADD` Lua 是一次 Redis 调用，不触达 Mongo。
+- **懒连接**：连接池之外，对外部依赖的**触达时机**也刻意推迟到首次真实操作——Redisson `setLazyInitialization(true)`、MongoClient 建好客户端不建连，装配期只 `new` 不触网。与「每步独立借还」同属一层取舍：装配测试（`ApplicationContextRunner`，不连 live Redis/Mongo）与不下数据的模块不被迫起库。后来者沿用同一哲学（如发号器的服号自检挂首次发号路径，而非启动装配期）。
 
 ## 4. 异常与重试
 
