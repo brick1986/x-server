@@ -1,4 +1,7 @@
 spring:
+  threads:
+    virtual:
+      enabled: true
   application:
     name: game-web
 
@@ -9,6 +12,12 @@ spring:
 # 注意：本模块自行创建 RedissonClient，绕开 redisson-spring-boot-starter，
 # 故 spring.data.redis.* 一族属性在此静默无效——Redis 配置只认 game.data.*。
 game:
+  web:
+    session-ttl-seconds: ${SESSION_TTL_SECONDS:86400}
+    auth-window-seconds: ${AUTH_WINDOW_SECONDS:60}
+    auth-ip-limit: ${AUTH_IP_LIMIT:60}
+    auth-account-limit: ${AUTH_ACCOUNT_LIMIT:10}
+    biz-log-directory: ${BIZ_LOG_DIRECTORY:logs/biz}
   data:
     redis-address: ${REDIS_ADDRESS:redis://127.0.0.1:6379}
     redis-password: ${REDIS_PASSWORD:}
