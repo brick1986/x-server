@@ -11,7 +11,7 @@ import java.util.Map;
  * （primitives §6），故优先级表由此处提供，而非内置于底层模块。
  *
  * <p>多锁场景按本表升序 acquire，全局统一顺序防止两个并发请求以相反顺序抢同两把锁而互等
- * （并发修订 §1.3）。菜鸟期两类实体：{@code guild} 先于 {@code player}。
+	 * （并发修订 §1.3）。全局顺序：account → guild → player。
  *
  * <p><b>新增实体类型必须在此登记</b>，否则 {@code lockAll} 抛 {@link IllegalArgumentException}
  * ——刻意 fail-fast，逼使新实体明确自己在全局加锁序中的位置，而不是随意插入导致死锁。
@@ -23,6 +23,7 @@ public class LockPriorityConfig {
 	@Bean
 	EntityPriorities entityPriorities() {
 		return () -> Map.of(
+					"account", -1,
 				"guild", 0,
 				"player", 1);
 	}
