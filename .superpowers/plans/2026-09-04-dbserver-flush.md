@@ -1,5 +1,7 @@
 # game-dbserver 落盘编排实现计划
 
+> 历史计划，功能已进入 main（2026-10-16 核对）。下文勾选保留执行前原文，不作为当前待办；当前状态与验证证据见 [PROGRESS.md](../../PROGRESS.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 实现 `game-dbserver` 落盘进程——原子排空 dirty 集合、分片流水线把 Redis JSON 搬进 Mongo、失败 key 精确回写、单实例分布式锁保证、优雅停机刷盘，并为此补齐 `game-data` 的三个原语。

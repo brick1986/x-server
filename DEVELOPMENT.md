@@ -1,6 +1,6 @@
 # x-server 开发环境清单
 
-> 仅服务端开发环境。技术栈版本钉定见 [`docs/superpowers/specs/2026-07-24-server-architecture-design.md`](./docs/superpowers/specs/2026-07-24-server-architecture-design.md) §3.1；本文件是其「装到机器上」的落地清单。
+> 仅服务端开发环境。技术栈版本钉定见 [架构设计](./.superpowers/specs/2026-07-24-server-architecture-design.md) §3.1；本文件是其「装到机器上」的落地清单。当前开发和验证状态见 [PROGRESS.md](./PROGRESS.md)。
 
 ## 一、机器上要装的（Windows 原生）
 
@@ -42,8 +42,8 @@ mongosh --eval "db.runCommand({ping:1})"   # 期望 { ok: 1 }
 
 - **Redis（Memurai）**：spec §4.4 要求 AOF `everysec`。在 `memurai.conf` 设 `appendonly yes`、`appendfsync everysec`，重启服务。
 - **数据 key 自 2026-09-21 起带 `{bNNNN}` 桶前缀**（提交桶化设计）。旧格式 key 会被
-  `DataKeys` 拒绝——本地/测试 Redis 请 `FLUSHDB` 一次，数据由冷启动路径（get miss 从
-  Mongo 加载回填）自然回灌；Mongo 零迁移。
+  `DataKeys` 拒绝。一次性清库只适用于可丢弃的独立测试 Redis；有需保留数据时，先使用旧版本
+  落盘并确认无 dirty/in-flight 残留、完成备份，再安排迁移。冷启动只能回填已落 Mongo 的数据。
 - **MongoDB**：默认服务自启，无需特殊配置。
 - **环境变量**：`JAVA_HOME` → JDK 25 目录；`PATH` 追加 JDK `bin`、Maven `bin`。
 
@@ -116,7 +116,7 @@ Redis/Mongo 的连接参数由 `game-data` 的 `DataProperties` 声明（`game.d
 单元测试不需要外部服务：
 
 ```bash
-mvn -pl game-data test          # 23 个单元测试
+mvn -pl game-data test          # 仅 game-data 单元测试；数量以本次报告为准
 ```
 
 集成测试（`*IT.java`）连**本地预起**的 Redis/Mongo，不用 Testcontainers。跑之前 Redis、Mongo 都得在跑：
@@ -156,4 +156,8 @@ export REDIS_TEST_PASSWORD=xxx && mvn -pl game-data verify
 集成测试基类是纯 JUnit、不启动 Spring 上下文，所以它自行解析上面那份 yaml，而不是通过 `DataProperties` 绑定。
 
 > 集成测试会 `flushdb` 当前 Redis 库并 drop Mongo 的 `game_test` 库。**别把它指向有真实数据的实例。**
+
+全仓回归使用 `mvn verify`（Windows 也可用 `.\mvnw.cmd verify`）。报告分别位于各模块
+`target/surefire-reports` 和 `target/failsafe-reports`。检查测试数、失败、错误和跳过数量，
+并在 [PROGRESS.md](./PROGRESS.md) 记录执行日期与范围；已有报告不能当作本次重新验证的结果。
 

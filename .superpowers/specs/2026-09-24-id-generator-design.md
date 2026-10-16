@@ -1,5 +1,7 @@
 # 发号原语与 uid 位型设计（IdGenerator）
 
+> 实现状态（2026-10-16 核对）：已实现并进入 main，最近实现与收尾提交为 2026-10-08；业务接入尚未实现。验证记录见 [PROGRESS.md](../../PROGRESS.md)。
+
 > 范围：`game-data` 新增发号原语 `IdGenerator`（号段模式，Mongo counters 做账本），并钉死无爹实体的 id 位型协议。key 文法 `{bNNNN}:{entity}:{id}:{field}`（[提交桶化设计](./2026-09-21-commit-clusterslot-design.md) §3）一字不动——本文回答的是 `{id}` 从哪来。
 >
 > 本文同时收口两类 id 来源：无爹实体（player/account/guild/全服邮件等）走发号器；有爹实体（道具/装备行）走容器内 seq，**不需要发号器**。方案否决过程与位型取舍已随讨论定稿，本文记录结论与依据，供实现与将来维护引用。

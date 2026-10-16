@@ -1,5 +1,7 @@
 # 多模块 Maven 骨架实施计划（Plan A）
 
+> 历史计划，功能已进入 main（2026-10-16 核对）。下文勾选保留执行前原文，不作为当前待办；当前状态与验证证据见 [PROGRESS.md](../../PROGRESS.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把当前单模块 `game` 工程重构为 5 模块 Maven reactor（game-parent / game-contract / game-data / game-web / game-dbserver），完成版本钉版与依赖声明，并让 game-contract 的 proto→Java 流水线跑通。

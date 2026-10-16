@@ -43,7 +43,7 @@ game-dbserver        → game-data（仅此一项）
 
 这是本次划分的关键判断。落盘进程 dbServer 的依赖关系直接决定了这条线：
 
-- dbServer 落盘的完整动作是 `SMEMBERS dirty` → `GET Redis JSON 字符串` → **upsert Mongo 文档**。架构 spec §4.1 钉定「Redis 与 MongoDB 同构，落盘零转换」——从 Redis 拿到 JSON、原样 upsert 进 Mongo，**纯字节搬运，不反序列化成 Java 对象**。
+- dbServer 当前落盘协议为逐桶 drain 到 in-flight → 批量读 Redis JSON → **批写 Mongo** → 失败回标及 ack，细节以落盘设计和提交桶化修订为准。Redis JSON 原样存入 Mongo 的 `v` 字段，**不反序列化成业务 Java 对象**。
 - 因此 dbServer **既不碰 proto 消息，也不碰 domain POJO**，更不需要鉴权与业务日志。
 
 把数据原语（Redis/Mongo 封装、锁、覆盖写模板）独立成 `game-data` 后，dbServer 的依赖缩到最瘦：**只依赖 `game-data` 一个模块**。
@@ -99,7 +99,8 @@ io.github.brick.data
              LockAcquireException  拿锁失败（回滚已持锁后抛）
              LockLostException  put 时 isHeld 门控失锁抛
   overlay/   CommitLua         SET+SADD 原子脚本（不解析 JSON）
-             DirtyLedger       SADD/SMEMBERS/SREM（落盘进程消费，见 Plan C）
+             DirtyLedger       分桶 drain/in-flight 恢复、失败回标、ack（见落盘设计及提交桶化修订）
+  idgen/     IdGenerator       Mongo 号段账本 + 内存发号 + 服号自检（已实现）
   codec/     JsonCodec         POJO↔JSON 序列化工具（不持有任何实体类）
 ```
 
@@ -111,6 +112,8 @@ io.github.brick.data
 - 锁作用域 `LockCtx` 须用 try-with-resources 包住，`close()` 逆序释放全部锁（异常路径也释放）。详见 [Plan B 数据原语设计](./2026-08-11-game-data-primitives-design.md)。
 
 ### 3.4 `game-web`（业务进程）
+
+> 以下为目标结构，尚未实现；当前只有启动类与锁优先级配置。AuthFilter/BizLogger 将随首个业务闭环交付，状态见 [PROGRESS.md](../../PROGRESS.md)。
 
 ```
 io.github.brick.web
@@ -129,16 +132,17 @@ io.github.brick.web
 
 ```
 io.github.brick.dbserver
-  flush/     FlushOrchestrator  SMEMBERS dirty → GET JSON → bulkWrite upsert → SREM
+  flush/     FlushOrchestrator  分桶 drain → MGET → Mongo 批写 → 失败回标及 ack
              FlushScheduler     @Scheduled（1~3s 触发）
-             GracefulShutdown   停机时 dirty 全量刷入 MongoDB
+             GracefulShutdown   停调度 → 等当前轮 → 循环刷盘（有界重试，保留残留）
+             FlushMetrics       积压、桶数、耗时、失败/缺失/跳过等指标
 ```
 
 - **唯一依赖 `game-data`**：通过 `RedisStore` 拿 JSON、`MongoStore` upsert、`DirtyLedger` 扫 dirty 集合组装落盘流程。
-- 落盘是 Mongo 的**唯一写者**，串行化天然防覆盖，不引入版本号（架构 spec §4.3）。
+- 落盘是业务数据在 Mongo 的**唯一写者**，串行化防覆盖，不引入版本号。发号器的 counters 账本是同步写入的独立例外（发号设计 §4.1）。
 - JSON 原样 upsert，零转换，不反序列化成 Java 对象。
-- 优雅停机流程：正常停服时 dirty 数据全量刷入 MongoDB（架构 spec §4.3）。
-- 自带运行时链路日志（Logback + MDC），不依赖 `game-web`。
+- 优雅停机尽力刷空，超时/中断后残留由后续轮次恢复；部署需先停 web，再停 dbserver（落盘设计 §6）。
+- 已有运行时日志；MDC 链路日志未随落盘计划交付（落盘设计 §7.1 状态注记），不应标为完成。
 
 ---
 
@@ -149,7 +153,7 @@ io.github.brick.dbserver
 3. **`game-data` 不认识业务实体**：只提供原语与 POJO 无关的覆盖写模板，不持有 domain POJO。
 4. **鉴权与业务日志归 `game-web`**：不进 `game-data`，避免污染落盘进程依赖；二者仅 web 进程消费。
 5. **Netty 版本统一 BOM 钉版于根 POM**，子模块禁止各自声明（架构 spec §3.1）。
-6. **运行时日志每进程自带**：`game-web` 的 `BizLogger` 是业务对账日志；`game-dbserver` 自带 Logback + MDC 链路日志。两者互不依赖。
+6. **运行时日志每进程自带**：`game-web` 的 `BizLogger` 是待实现的业务对账日志；`game-dbserver` 已有运行时日志，MDC 链路日志尚未交付。两者互不依赖。
 
 ---
 

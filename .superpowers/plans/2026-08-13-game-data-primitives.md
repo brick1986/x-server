@@ -1,5 +1,7 @@
 # game-data 数据原语实现计划
 
+> 历史计划，功能已进入 main（2026-10-16 核对）。下文勾选保留执行前原文，不作为当前待办；当前状态与验证证据见 [PROGRESS.md](../../PROGRESS.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 实现 `game-data` 模块的数据原语——`LockScope`/`LockCtx` 锁作用域、Redis/Mongo 存储封装、原子提交 Lua、标脏账本、JSON 编解码、连接池配置，使 `game-web` 与 `game-dbserver` 可据此安全读写。

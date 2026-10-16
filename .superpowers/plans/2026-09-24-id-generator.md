@@ -1,5 +1,7 @@
 # IdGenerator 发号原语实现计划
 
+> 历史计划，功能已进入 main（2026-10-16 核对）。下文勾选保留执行前原文，不作为当前待办；当前状态与验证证据见 [PROGRESS.md](../../PROGRESS.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在 `game-data` 落地号段模式发号原语 `IdGenerator`（Mongo counters 账本 + 进程内存发号）与 id 位型协议。

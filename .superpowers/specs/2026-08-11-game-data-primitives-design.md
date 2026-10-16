@@ -2,7 +2,7 @@
 
 > 范围：`game-data` 模块的对外 API 与内部实现规格——锁、读、覆盖写、标脏、序列化、连接池。本文是对 [架构层设计](./2026-07-24-server-architecture-design.md) §3.1/§4 与 [数据并发正确性修订](./2026-08-04-data-concurrency-fixes-design.md) §1-§4 在 `game-data` 层面的落地；模块边界与依赖规则见 [模块清单与依赖规则设计](./2026-08-05-module-breakdown-design.md)（其 §2.5/§3.3 已同步为本文件所述形态）。
 >
-> 不在本次范围：`game-web` 横切（AuthFilter/BizLogger）、`game-dbserver` 落盘编排——见后续 Plan C。
+> 本文原范围不含 `game-web` 横切与 `game-dbserver` 落盘编排。当前状态（2026-10-16）：数据原语和落盘已实现，web 横切随首个业务闭环设计中；见 [PROGRESS.md](../../PROGRESS.md)。DirtyLedger 的当前消费协议以落盘设计及提交桶化修订为准。
 
 ## 1. 设计取向
 
@@ -119,7 +119,7 @@ lock/    LockScope          lockAll(List<LockReq>) → LockCtx 实现入口
          LockAcquireException   拿锁失败（all-or-nothing 回滚后抛）
          LockLostException   put 时 isHeld 门控失锁抛
 overlay/ CommitLua         原子脚本 SET key newjson; SADD dirty key（不解析 JSON）
-         DirtyLedger       SADD/SMEMBERS/SREM（落盘进程消费，见 Plan C）
+         DirtyLedger       分桶 drain/in-flight 恢复、失败回标、ack（见落盘设计及提交桶化修订）
 codec/   JsonCodec         POJO↔JSON 序列化工具（不持有任何业务实体类）
 idgen/   IdGenerator       号段发号（next/lease）：无爹实体的 id 来源（发号 spec 2026-09-24）
          SegmentIdGenerator 内存段发号 + MongoSegmentLeaser/MongoServerIdGuard（counters 账本）

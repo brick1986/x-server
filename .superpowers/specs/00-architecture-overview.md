@@ -2,6 +2,7 @@
 
 > 本文档是 `.superpowers/specs/` 的**总架构文档与索引**：先给全局概览，再链接到各子模块文档。
 > 权威细节一律见对应子文档，本文档只做导航与速览，不重复、不取代任何子文档内容。
+> 开发进度与验证证据统一维护在 [PROGRESS.md](../../PROGRESS.md)，本页里程碑随实现同步。
 >
 > 阅读顺序建议：本文档 → [架构层设计](./2026-07-24-server-architecture-design.md) → 按需进入各子文档（见 [§9 阅读导航](#9-阅读导航)）。
 
@@ -19,9 +20,10 @@
 | [2026-08-11-game-data-primitives-design.md](./2026-08-11-game-data-primitives-design.md) | 2026-08-11 | 模块内设计（Plan B） | 已实现（代码 + 集成测试已合并） | `game-data` 数据原语：LockScope / LockCtx / CommitLua / DirtyLedger / JsonCodec 对外 API 与内部规格 |
 | [2026-09-04-dbserver-flush-design.md](./2026-09-04-dbserver-flush-design.md) | 2026-09-04 | 模块内设计（Plan C 之一）；含对架构 §4.3 的修订 | ✅ 已实现并合并（plan: `2026-09-04-dbserver-flush.md`） | `game-dbserver` 落盘编排：dirty 消费协议 / 分片流水线 / 失败语义 / 单实例保证 / 优雅停机 |
 | [2026-09-21-commit-clusterslot-design.md](./2026-09-21-commit-clusterslot-design.md) | 2026-09-21 | 修订文档；了结落盘 spec §2.5.1 搁置的提交侧 CROSSSLOT | ✅ 已实现并合并 | 脏标记从全局 `{dirty}` 改为与数据 key 同 slot 的分桶集合，提交 Lua 在 Redis Cluster 下合法 |
-| [2026-09-24-id-generator-design.md](./2026-09-24-id-generator-design.md) | 2026-09-24 | 模块内设计 | 已实现（feature 分支待合并） | `game-data` 发号原语 `IdGenerator`（号段模式，Mongo counters 账本）与 uid 位型钉死 |
+| [2026-09-24-id-generator-design.md](./2026-09-24-id-generator-design.md) | 2026-09-24 | 模块内设计 | 已实现，已进入 main | `game-data` 发号原语 `IdGenerator`（号段模式，Mongo counters 账本）与 uid 位型钉死 |
+| [2026-10-16-first-business-loop-design.md](./2026-10-16-first-business-loop-design.md) | 2026-10-16 | 业务闭环及 web 横切设计 | 设计已确认，实现计划待审阅；尚未实现 | 账号密码注册/登录、token、创角、档案读写、业务日志及落盘回填验收 |
 
-> 执行计划（非 spec）位于 `.superpowers/plans/`：`2026-08-05-module-skeleton.md`、`2026-08-13-game-data-primitives.md`、`2026-09-04-dbserver-flush.md`。specs 只放设计决策，plans 放落地步骤。
+> 执行计划（非 spec）位于 `.superpowers/plans/`：模块骨架、数据原语、落盘、提交桶化、发号器共五份历史计划，以及当前[首个业务闭环实现计划](../plans/2026-10-16-first-business-loop.md)。历史计划中的未勾选步骤不代表当前功能未实现；以本页里程碑、PROGRESS.md 及源码/验证证据为准。specs 只放设计决策，plans 放落地步骤。
 
 ---
 
@@ -39,7 +41,7 @@
 ## 3. 架构形态
 
 - **Modular Monolith**：代码一体（Maven 多模块）、部署可拆。
-- **部署 = 2 进程**：无状态 HTTP 业务进程（`game-web`，可横向扩展）+ 落盘进程（`game-dbserver`，MongoDB 唯一写者）。
+- **部署 = 2 进程**：无状态 HTTP 业务进程（`game-web`，可横向扩展）+ 落盘进程（`game-dbserver`，业务数据的 MongoDB 唯一写者）。发号器的 Mongo counters 账本是独立同步写入的例外，见发号设计 §4.1。
 - **写正确性不依赖 sticky 路由**：同实体写串行由 Redisson 分布式锁在代码层强制，多实例横扩 / 滚动发布均安全。
 - **实时玩法（WS）为独立里程碑、独立进程**，菜鸟期不落地。
 
@@ -101,10 +103,12 @@ game-data / game-contract → 不依赖任何业务模块
 | 里程碑 | 范围 | 状态 |
 | --- | --- | --- |
 | 模块骨架 | `game-parent` + 4 模块 POM、启动类、契约种子 | ✅ 已落地（plan: `2026-08-05-module-skeleton.md`） |
-| game-data 数据原语（Plan B） | LockScope/LockCtx/CommitLua/DirtyLedger/JsonCodec + 自动装配 + 11 个正确性集成测试 | ✅ 已实现并合并（plan: `2026-08-13-game-data-primitives.md`） |
+| game-data 数据原语（Plan B） | LockScope/LockCtx/CommitLua/DirtyLedger/JsonCodec + 自动装配 + 正确性测试 | ✅ 已实现并合并（plan: `2026-08-13-game-data-primitives.md`） |
 | Plan C · 落盘编排 | `game-dbserver` 的 FlushOrchestrator / FlushScheduler / GracefulShutdown（+ `game-data` 的 DirtyLedger/RedisStore/MongoStore 三处扩展） | ✅ 已实现并合并 |
-| Plan C · web 横切 | `game-web` 的 AuthFilter / BizLogger | ⏳ 待设计（范围见 [原语设计 §8](./2026-08-11-game-data-primitives-design.md)） |
-| 业务域 | player / bag / equipment / shop 等 | ⏳ 待做（模块内部划分待单独讨论） |
+| 提交桶化 | 同桶数据/脏标记、分桶 drain、跨桶 Mongo 批写 | ✅ 已实现并进入 main（plan: `2026-09-21-commit-clusterslot.md`） |
+| ID 发号器 | uid 位型、Mongo 号段、内存发号、服号自检、自动装配 | ✅ 已实现并进入 main（plan: `2026-09-24-id-generator.md`） |
+| 首个业务闭环（含 Plan C · web 横切） | 账号密码注册/登录、AuthFilter/BizLogger、创角、玩家档案读写与落盘回填 | ⏳ 设计已确认，实现计划待审阅；业务代码尚未实现 |
+| 后续业务域 | bag / equipment / shop、多角色管理等 | ⏳ 未开始；不属于首个业务闭环 |
 | 实时玩法 WS | Netty WS 长连接、场景/房间模型、会话挂起 | 🔒 独立里程碑，菜鸟期不落地（见 [实时玩法设计](./2026-07-24-realtime-gameplay-ws-design.md)） |
 
 ---
@@ -149,3 +153,4 @@ game-data / game-contract → 不依赖任何业务模块
 1. **新 spec 一律登记到 §1 文档地图**，保持「总纲 → 子文档」单向导航成立。
 2. **修订既有决策时新建修订文档**，声明被修订的原文位置与改点汇总（参照并发修订文档 §5 的格式），不直接改写权威主文档的历史表述。
 3. **specs 只放设计决策**，落地步骤放 `plans/`；已实现的 spec 在文档地图「状态」列标注。
+4. **进度随代码同步**：每个里程碑实现或验证后同步 PROGRESS.md、本页 §1/§7 和相关 spec 的状态；未执行的测试不得写成已通过。新计划逐项更新勾选状态，历史计划保留执行前原文并显式标明其用途。

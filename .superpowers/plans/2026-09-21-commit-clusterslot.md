@@ -1,5 +1,7 @@
 # 提交协议桶化实现计划
 
+> 历史计划，功能已进入 main（2026-10-16 核对）。下文勾选保留执行前原文，不作为当前待办；当前状态与验证证据见 [PROGRESS.md](../../PROGRESS.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把脏标记从全局 `{dirty}` 集合改为与数据 key 同 slot 的分桶集合（K=4096），让提交侧 Lua 与落盘协议在 Redis Cluster 下合法；运行时仍单机。

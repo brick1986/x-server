@@ -1,0 +1,5 @@
+syntax = "proto3";
+package brick.game.contract;
+option java_package = "io.github.brick.contract.game";
+option java_multiple_files = true;
+message ErrorResponse { string code = 1; string message = 2; string request_id = 3; }
