@@ -20,6 +20,9 @@
 # 务必指向本地开发实例，别指向有真实数据的地方。
 game:
   data:
+    # 独立测试库；必须确认可丢弃才把下面开关改为 true。
+    redis-database: 15
+    allow-test-cleanup: false
     redis-address: redis://127.0.0.1:6379
     # 本机 Redis 的 requirepass；无鉴权则留空
     redis-password: <你的 Redis 密码>

@@ -73,6 +73,10 @@ public abstract class LocalRedisMongo {
 
 	@BeforeAll
 	static void startClients() {
+		TestDatabaseSafety.validate(prop("game.data.redis-address", "redis://127.0.0.1:6379"),
+			Integer.parseInt(prop("game.data.redis-database", "15")),
+			prop("game.data.mongo-uri", "mongodb://localhost:27018"), MONGO_DB,
+			Boolean.parseBoolean(prop("game.data.allow-test-cleanup", "false")));
 		redis = newClient(8);
 		mongo = MongoClients.create(prop("game.data.mongo-uri", "mongodb://localhost:27018"));
 	}
@@ -88,6 +92,7 @@ public abstract class LocalRedisMongo {
 	private static RedissonClient newClient(int poolSize) {
 		Config cfg = new Config();
 		SingleServerConfig single = cfg.useSingleServer()
+				.setDatabase(Integer.parseInt(prop("game.data.redis-database", "15")))
 				.setAddress(prop("game.data.redis-address", "redis://127.0.0.1:6379"))
 				.setConnectionPoolSize(poolSize)
 				.setConnectionMinimumIdleSize(1);

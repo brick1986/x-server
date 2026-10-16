@@ -17,6 +17,9 @@
 
 	<dependencies>
 		<dependency>
+			<groupId>io.github.brick</groupId><artifactId>game-data</artifactId><type>test-jar</type><scope>test</scope>
+		</dependency>
+		<dependency>
 			<groupId>io.github.brick</groupId>
 			<artifactId>game-data</artifactId>
 		</dependency>
@@ -42,6 +45,7 @@
 
 	<build>
 		<plugins>
+			<plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-failsafe-plugin</artifactId></plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
