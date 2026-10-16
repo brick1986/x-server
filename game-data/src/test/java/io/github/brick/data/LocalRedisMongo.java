@@ -78,7 +78,12 @@ public abstract class LocalRedisMongo {
 			prop("game.data.mongo-uri", "mongodb://localhost:27018"), MONGO_DB,
 			Boolean.parseBoolean(prop("game.data.allow-test-cleanup", "false")));
 		redis = newClient(8);
-		mongo = MongoClients.create(prop("game.data.mongo-uri", "mongodb://localhost:27018"));
+		mongo = newMongoClient();
+	}
+
+	/** 独立落盘上下文使用；调用方负责 close。 */
+	protected static MongoClient newMongoClient() {
+		return MongoClients.create(prop("game.data.mongo-uri", "mongodb://localhost:27018"));
 	}
 
 	/**
