@@ -21,7 +21,7 @@
 | [2026-09-04-dbserver-flush-design.md](./2026-09-04-dbserver-flush-design.md) | 2026-09-04 | 模块内设计（Plan C 之一）；含对架构 §4.3 的修订 | ✅ 已实现并合并（plan: `2026-09-04-dbserver-flush.md`） | `game-dbserver` 落盘编排：dirty 消费协议 / 分片流水线 / 失败语义 / 单实例保证 / 优雅停机 |
 | [2026-09-21-commit-clusterslot-design.md](./2026-09-21-commit-clusterslot-design.md) | 2026-09-21 | 修订文档；了结落盘 spec §2.5.1 搁置的提交侧 CROSSSLOT | ✅ 已实现并合并 | 脏标记从全局 `{dirty}` 改为与数据 key 同 slot 的分桶集合，提交 Lua 在 Redis Cluster 下合法 |
 | [2026-09-24-id-generator-design.md](./2026-09-24-id-generator-design.md) | 2026-09-24 | 模块内设计 | 已实现，已进入 main | `game-data` 发号原语 `IdGenerator`（号段模式，Mongo counters 账本）与 uid 位型钉死 |
-| [2026-10-16-first-business-loop-design.md](./2026-10-16-first-business-loop-design.md) | 2026-10-16 | 业务闭环及 web 横切设计 | 设计已确认，实现计划待审阅；尚未实现 | 账号密码注册/登录、token、创角、档案读写、业务日志及落盘回填验收 |
+| [2026-10-16-first-business-loop-design.md](./2026-10-16-first-business-loop-design.md) | 2026-10-16 | 业务闭环及 web 横切设计 | 已实现且已验证（2026-10-19，本地分支） | 账号密码注册/登录、token、创角、档案读写、业务日志及落盘回填验收 |
 
 > 执行计划（非 spec）位于 `.superpowers/plans/`：模块骨架、数据原语、落盘、提交桶化、发号器共五份历史计划，以及当前[首个业务闭环实现计划](../plans/2026-10-16-first-business-loop.md)。历史计划中的未勾选步骤不代表当前功能未实现；以本页里程碑、PROGRESS.md 及源码/验证证据为准。specs 只放设计决策，plans 放落地步骤。
 
@@ -41,7 +41,7 @@
 ## 3. 架构形态
 
 - **Modular Monolith**：代码一体（Maven 多模块）、部署可拆。
-- **部署 = 2 进程**：无状态 HTTP 业务进程（`game-web`，可横向扩展）+ 落盘进程（`game-dbserver`，业务数据的 MongoDB 唯一写者）。发号器的 Mongo counters 账本是独立同步写入的例外，见发号设计 §4.1。
+- **部署 = 2 进程**：无状态 HTTP 业务进程（`game-web`，可横向扩展）+ 落盘进程（`game-dbserver`，玩家档案的 MongoDB 唯一写者）。Mongo counters 与 accounts 分别由发号器和账号仓库同步写入，见发号设计 §4.1 及首个业务闭环设计。
 - **写正确性不依赖 sticky 路由**：同实体写串行由 Redisson 分布式锁在代码层强制，多实例横扩 / 滚动发布均安全。
 - **实时玩法（WS）为独立里程碑、独立进程**，菜鸟期不落地。
 
@@ -68,7 +68,7 @@
 > 速览仅作导航。三处正确性修订以 [数据并发正确性修订](./2026-08-04-data-concurrency-fixes-design.md) 为准（其 §5 汇总了全部改点）。
 
 - **Write-Behind**：Redis 权威 + key 级标脏（`dirty` 集合）+ 独立进程异步落 Mongo；Redis 与 MongoDB 同构（JSON），落盘零转换、无版本号。
-- **同实体写串行**：`lock:{entity}:{id}` 互斥锁，读写共用；跨实体按全局类型优先级（菜鸟期 `guild > player`）+ 同类型 ID 序加锁，all-or-nothing。
+- **同实体写串行**：`lock:{entity}:{id}` 互斥锁，读写共用；跨实体按全局类型优先级（当前 `account → guild → player`）+ 同类型 ID 序加锁，all-or-nothing。
 - **固定租约 10s、无看门狗 + isHeld 提交门控**：失锁 fail-fast abort，无锁毒。
 - **读路径持锁回填**：miss 时锁内从 Mongo 加载 + 普通 `SET` 回填，消除丢失更新竞态。
 - **业务日志**：关键操作先于提交写磁盘（增量 + before/after 绝对值），人工对账依据，不参与自动恢复。
@@ -107,7 +107,7 @@ game-data / game-contract → 不依赖任何业务模块
 | Plan C · 落盘编排 | `game-dbserver` 的 FlushOrchestrator / FlushScheduler / GracefulShutdown（+ `game-data` 的 DirtyLedger/RedisStore/MongoStore 三处扩展） | ✅ 已实现并合并 |
 | 提交桶化 | 同桶数据/脏标记、分桶 drain、跨桶 Mongo 批写 | ✅ 已实现并进入 main（plan: `2026-09-21-commit-clusterslot.md`） |
 | ID 发号器 | uid 位型、Mongo 号段、内存发号、服号自检、自动装配 | ✅ 已实现并进入 main（plan: `2026-09-24-id-generator.md`） |
-| 首个业务闭环（含 Plan C · web 横切） | 账号密码注册/登录、AuthFilter/BizLogger、创角、玩家档案读写与落盘回填 | ⏳ 设计已确认，实现计划待审阅；业务代码尚未实现 |
+| 首个业务闭环（含 Plan C · web 横切） | 账号密码注册/登录、AuthFilter/BizLogger、创角、玩家档案读写与落盘回填 | ✅ 已实现且已验证（2026-10-19，本地分支未合并） |
 | 后续业务域 | bag / equipment / shop、多角色管理等 | ⏳ 未开始；不属于首个业务闭环 |
 | 实时玩法 WS | Netty WS 长连接、场景/房间模型、会话挂起 | 🔒 独立里程碑，菜鸟期不落地（见 [实时玩法设计](./2026-07-24-realtime-gameplay-ws-design.md)） |
 

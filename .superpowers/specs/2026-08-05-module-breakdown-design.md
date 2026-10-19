@@ -113,7 +113,7 @@ io.github.brick.data
 
 ### 3.4 `game-web`（业务进程）
 
-> 以下为目标结构，尚未实现；当前只有启动类与锁优先级配置。AuthFilter/BizLogger 将随首个业务闭环交付，状态见 [PROGRESS.md](../../PROGRESS.md)。
+> 账号/玩家域、HTTP 鉴权、会话限流、Protobuf 映射和磁盘 BizLogger 已实现；bag/equipment/shop/currency 仍未开始。验证状态见 [PROGRESS.md](../../PROGRESS.md)。
 
 ```
 io.github.brick.web
@@ -124,7 +124,7 @@ io.github.brick.web
 ```
 
 - HTTP Controller + Spring MVC + Tomcat 虚拟线程。
-- `AuthFilter` 依赖 `game-data` 的 `RedisStore` 读 token。
+- `AuthFilter` 通过 `SessionStore` 校验 Redis 中的 token 摘要及当前会话。
 - `BizLogger` 独立于 Redis/Mongo（纯磁盘，架构 spec §4.4），日志载体不落 Redis/Mongo。
 - 依赖 `game-data` + `game-contract`。
 
@@ -139,7 +139,7 @@ io.github.brick.dbserver
 ```
 
 - **唯一依赖 `game-data`**：通过 `RedisStore` 拿 JSON、`MongoStore` upsert、`DirtyLedger` 扫 dirty 集合组装落盘流程。
-- 落盘是业务数据在 Mongo 的**唯一写者**，串行化防覆盖，不引入版本号。发号器的 counters 账本是同步写入的独立例外（发号设计 §4.1）。
+- 落盘是业务数据在 Mongo 的**唯一写者**，串行化防覆盖，不引入版本号。发号器 counters 与账号 accounts 是同步写入例外（发号设计 §4.1、首个业务闭环设计）。
 - JSON 原样 upsert，零转换，不反序列化成 Java 对象。
 - 优雅停机尽力刷空，超时/中断后残留由后续轮次恢复；部署需先停 web，再停 dbserver（落盘设计 §6）。
 - 已有运行时日志；MDC 链路日志未随落盘计划交付（落盘设计 §7.1 状态注记），不应标为完成。
@@ -153,7 +153,7 @@ io.github.brick.dbserver
 3. **`game-data` 不认识业务实体**：只提供原语与 POJO 无关的覆盖写模板，不持有 domain POJO。
 4. **鉴权与业务日志归 `game-web`**：不进 `game-data`，避免污染落盘进程依赖；二者仅 web 进程消费。
 5. **Netty 版本统一 BOM 钉版于根 POM**，子模块禁止各自声明（架构 spec §3.1）。
-6. **运行时日志每进程自带**：`game-web` 的 `BizLogger` 是待实现的业务对账日志；`game-dbserver` 已有运行时日志，MDC 链路日志尚未交付。两者互不依赖。
+6. **运行时日志每进程自带**：`game-web` 的 `BizLogger` 已提供独立磁盘业务意图日志，HTTP 请求含 requestId/accountId/userId MDC 并在退出时清理；`game-dbserver` 已有运行时日志，MDC 链路日志尚未交付。两者互不依赖。
 
 ---
 

@@ -1,63 +1,88 @@
 # 开发进度
 
-更新日期：2026-10-16。范围：当前本地工作树；不代表生产环境部署状态。
+更新日期：2026-10-19。范围：当前本地开发分支；不代表已合并或部署。
 
 ## 当前阶段
 
-数据基础设施已实现，首个业务闭环设计已于 2026-10-16 获用户确认；实现计划已编写，待审阅及选择执行方式。
-已确认采用账号名＋密码进行本地注册和登录，账号同步存 Mongo、玩家档案继续异步落盘。
-目标到「注册 → 登录/首次创角 → 玩家档案读取与修改 → 自动落 Mongo → 缓存 miss 回填」为止。
-背包、装备、商城、实时玩法以及多角色管理不在本轮范围。
+首个完整服务端业务闭环已完成；独立审查的两项发现已修复，并通过最终全仓验证。
+用户已确认设计、八项实现计划和 Native 连续执行方式。
+交付链路为「注册 → 登录/首次创角 → 鉴权读档/改名 → 自动落 Mongo → 缓存 miss 回填」。
+每账号一个默认角色；账号 ID 与角色 uid 分别发号。账号及密码散列同步存 Mongo，玩家档案继续异步落盘。
+背包、装备、商城、货币、实时玩法、多角色和找回密码均未开始；本轮到首个闭环为止。
 
 ## 已实现
 
-| 里程碑 | 代码范围 | 依据 |
+| 里程碑 | 代码范围 | 验证依据 |
 | --- | --- | --- |
-| 模块骨架 | game-contract / game-data / game-web / game-dbserver | 根 POM、四模块构建与入口 |
-| 数据原语 | LockScope/LockCtx、RedisStore/MongoStore、CommitLua/DirtyLedger、JsonCodec | 源码及对应单元/集成测试 |
-| 异步落盘 | FlushOrchestrator/FlushScheduler/GracefulShutdown/FlushMetrics | 分批落盘、恢复、互斥、停机与指标代码 |
-| 提交桶化 | DataKeys、CommitLua、DirtyLedger、落盘编排 | 2026-09-22 至 09-23 提交；同槽提交协议 |
-| ID 发号器 | IdScheme、SegmentIdGenerator、MongoSegmentLeaser、MongoServerIdGuard | 2026-10-08 提交，含装配和测试；已进入 main |
+| 模块骨架 | game-contract / game-data / game-web / game-dbserver | 四模块构建与入口 |
+| 数据原语 | LockScope/LockCtx、RedisStore/MongoStore、CommitLua/DirtyLedger、JsonCodec | 单元及真实 Redis/Mongo 集成测试 |
+| 异步落盘 | FlushOrchestrator/FlushScheduler/GracefulShutdown/FlushMetrics | 分批、恢复、互斥、停机与指标测试 |
+| 提交桶化 | DataKeys、CommitLua、DirtyLedger、落盘编排 | 同槽提交与多桶消费测试 |
+| ID 发号器 | IdScheme、SegmentIdGenerator、MongoSegmentLeaser、MongoServerIdGuard | 发号、并发及装配测试；基线已在 main |
+| 账号与会话 | MongoAccountRepository、PasswordHasher、AuthService、SessionStore、LoginRateLimiter | 唯一账号、PBKDF2、失效/过期/并发退出和限流测试 |
+| 玩家业务与日志 | PlayerService、FileBizLogger | 幂等创角、归属校验、昵称校验、先日志后写、日志失败阻断 |
+| HTTP 入口 | 五个 Protobuf POST 接口、AuthFilter、RequestBodyLimitFilter | 正常与错误协议、16KiB 限制、ThreadLocal/MDC 清理 |
+| 首个业务闭环 | BusinessLoopIT、AccountConcurrencyIT | 真实调度落盘、清对应缓存后的冷回填、并发唯一性和会话失效 |
 
-基线提交：`d97cbdf`（2026-10-08）。核对时本地 main 与本地 origin/main 引用相同；未联网刷新远端。
+基线提交 `d97cbdf`；开发分支 `codex/first-business-loop`。
+设计见[首个业务闭环设计](./.superpowers/specs/2026-10-16-first-business-loop-design.md)，执行清单见[实现计划](./.superpowers/plans/2026-10-16-first-business-loop.md)。
+接口、环境变量、启动与验收步骤见[业务闭环指南](./docs/first-business-loop.md)。
 
-## 当前工作与完成条件
+## 收尾状态
 
-- [x] 核对源码、Git 记录和已有测试报告，修正发号器待合并等过期状态。
-- [x] 修复开发指南中的 spec 路径、固定测试数量及过于笼统的缓存清理说明。
-- [x] 编写[首个业务闭环设计](./.superpowers/specs/2026-10-16-first-business-loop-design.md)，用户已确认。
-- [x] 编写并自审[实现计划](./.superpowers/plans/2026-10-16-first-business-loop.md)，共八项任务。
-- [ ] 用户审阅实现计划并选择执行方式。
-- [ ] 实现账号注册/登录、token 鉴权、业务日志和玩家档案接口。
-- [ ] 通过并发、异常和 HTTP 到 Mongo 冷回填的闭环测试。
-- [ ] 更新接口说明、运行/验收步骤和验证记录，再将里程碑标为完成。
+- [x] 文档先行，核对既有源码和 Git 记录，修正基础设施/发号器过期状态。
+- [x] 用户确认业务方案、书面设计和八项实现计划。
+- [x] Task 1～6：契约、账号、会话、日志、玩家服务、HTTP 接口已提交。
+- [x] Task 7：真实后端闭环及并发集成测试已提交。
+- [x] Task 8：运行指南、架构状态与全仓回归。
+- [x] 最终独立审查；两项有效发现已修复，新增回归测试先失败后通过，再跑全仓验证。
 
 ## 验证记录
 
-2026-10-16 实现计划检查：8 项任务、47 个待执行步骤，已核对设计覆盖与任务间接口；
-15 份修改/新增 Markdown 文档中的 66 个本地文件链接可解析，`git diff --check` 通过。
-本次仅编写计划和同步状态，未运行 Java 测试、未开始实现。
-
-2026-10-16 文档维护检查：14 份修改/新增 Markdown 文档、代码示例之外的 62 个本地文件链接均可解析；
-`git diff --check` 通过。本轮尚未修改业务代码，未重新运行 Java 测试。
-
-2026-10-16 读取本地 2026-10-08 的既有 XML 测试报告，未重新执行：
+2026-10-19 09:33:17（Asia/Shanghai）执行 `mvn verify` 成功，未携带跳过选项：
 
 | 模块 | 单元测试 | 集成测试 | 失败 / 错误 / 跳过 |
 | --- | ---: | ---: | --- |
-| game-contract | 2 | 0 | 0 / 0 / 0 |
-| game-data | 48 | 55 | 0 / 0 / 0 |
+| game-contract | 3 | 0 | 0 / 0 / 0 |
+| game-data | 49 | 55 | 0 / 0 / 0 |
 | game-dbserver | 20 | 24 | 0 / 0 / 0 |
-| game-web | 1 | 0 | 0 / 0 / 0 |
-| 合计 | 71 | 79 | 0 / 0 / 0 |
+| game-web | 21 | 9 | 0 / 0 / 0 |
+| 合计 | 93 | 88 | 0 / 0 / 0 |
 
 证据位置：各模块 `target/surefire-reports/TEST-*.xml` 和 `target/failsafe-reports/TEST-*.xml`。
-这些是历史快照，不能证明后续改动已通过测试，也不能证明当前外部服务可用。
+测试总数 181；后续改动必须以新报告更新本表。
+
+2026-10-16 定向命令 `mvn -pl game-web -am "-Dit.test=BusinessLoopIT,AccountConcurrencyIT" "-Dfailsafe.failIfNoSpecifiedTests=false" verify` 成功，执行 3 个闭环/并发 IT。
+`mvn -pl game-web -am dependency:tree "-Dscope=runtime"` 确认 web 生产依赖中没有 dbserver。
+文档的 Git Bash protoc 编码/解码示例实际往返成功；2026-10-19 检查的 86 个 Markdown 本地文件链接可解析，`git diff --check` 通过。
+
+测试使用本地 Redis DB15 和 Mongo `game_test`，清理前检查显式 opt-in、loopback、非零 Redis 测试库和 `_test` Mongo 库名。
+闭环 HTTP 使用真实过滤器/转换器/Controller 的 MockMvc；后端是真实 Redis/Mongo，落盘是独立客户端和独立 Spring 调度上下文里的生产代码，不手动调用 flushOnce 或 Mongo 写入冒充落盘。
+日志故障用关闭真实 FileBizLogger 注入；具体锁/数据库错误映射另有单元测试。没有进行公网部署或负载验收。
+
+## 独立审查与修复
+
+2026-10-19 独立审查覆盖基线至首个业务闭环的整个分支、设计和测试，发现两项问题：
+
+1. 原始 URI 跳过判断可让分号参数/百分号编码路径绕过 16KiB 与 IP 限流。现由容器映射决定过滤器范围，所有输入均受体积限制，非规范 API 路径统一拒绝；匿名和已登录请求均有回归覆盖。
+2. 日志按创建时间清理可能删掉不足 48 小时的晚写记录。现从文件所属 UTC 日结束后计算 48 小时，到期才清理整段。
+
+回归证据：`BusinessApiTest.normalizedApiAliasesCannotBypassRequestBoundaries`、
+`RequestBodyLimitFilterTest.mappedApiAliasesStillEnforceTheStreamLimit`、
+`FileBizLoggerTest.retentionKeepsLateRecordsForAtLeastFortyEightHours` 均先在旧代码失败，再在修复后通过；最终 `mvn verify` 181 项全部通过。
+无遗留阻塞项，无暂缓的小问题。生产 web jar 已核对，不含 dbserver、test-jar 或私有测试配置。
+
+执行调整：复用当前 checkout 的独立功能分支；用 PowerShell 维护执行记录；Maven 带点属性参数加引号以适配 PowerShell。
+
+## 已知边界与后续
+
+- Mongo 账号与 Redis 玩家档案不构成跨存储事务；初始化中途失败可以按预留 uid 重试。已经初始化的档案完全失踪时返回完整性错误，禁止悄悄重建。
+- 保留 Redis 权威、秒级异步落盘和 AOF 原有风险边界。磁盘业务日志是操作意图，不等同于提交成功，不自动重放。
+- 本地分支保留；尚未合并、推送或部署。后续业务等待新的任务范围。
 
 ## 文档维护规则
 
-1. 本文件记录开发状态和验证证据；[架构总纲](./.superpowers/specs/00-architecture-overview.md) 汇总设计入口及里程碑。
-2. 完成一项功能时同步相关 spec 状态及计划勾选；完成验证后记录日期、命令、范围和结果。
-3. 旧计划是执行前的步骤设计，不将未勾选的历史步骤直接当作待办，也不追补无法证明的历史执行记录。
-4. 架构变更写入新的修订设计并登记总纲；引用旧文档时指出被新设计取代的部分。
-5. 本轮完成首个闭环后停止扩展功能；后续业务保留为未开始。
+1. 本文件记录进度和验证证据；[架构总纲](./.superpowers/specs/00-architecture-overview.md) 维护设计入口和里程碑。
+2. 功能、spec 状态与当前计划勾选同步更新；测试记录包含日期、命令、范围、数量和结果。
+3. 历史计划保留当时步骤，不将旧未勾选项直接当作当前待办，也不补写没有证据的历史验证。
+4. 架构修订写入新设计并登记总纲，旧设计标明修订来源。

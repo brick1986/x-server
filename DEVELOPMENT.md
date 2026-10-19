@@ -113,6 +113,12 @@ Redis/Mongo 的连接参数由 `game-data` 的 `DataProperties` 声明（`game.d
 
 ## 五、跑测试
 
+首个业务闭环已接入账号同步 Mongo（`accounts`）与玩家档案异步落盘；`counters` 仍同步写入。
+HTTP 接口、会话/限流/日志环境变量、Protobuf 命令及验收见[业务闭环指南](./docs/first-business-loop.md)。
+构建后分别启动 `game-web/target/game-web-0.0.1-SNAPSHOT.jar` 和
+`game-dbserver/target/game-dbserver-0.0.1-SNAPSHOT-exec.jar`；后者普通 jar 仅供测试依赖。
+对外服务须 HTTPS。本轮未提供找回密码、多角色或后续玩法。
+
 单元测试不需要外部服务：
 
 ```bash
@@ -138,6 +144,8 @@ cp game-data/src/test/resources/it-config.yaml.example \
 game:
   data:
     redis-address: redis://127.0.0.1:6379
+    redis-database: 15                # 独立、可丢弃的测试库；禁止 DB0
+    allow-test-cleanup: true           # 核实两个目标都可丢弃后才启用；模板默认 false
     redis-password: <你的 Redis 密码>   # 无鉴权则留空
     mongo-uri: mongodb://localhost:27018
     mongo-db: game_test
@@ -155,7 +163,9 @@ export REDIS_TEST_PASSWORD=xxx && mvn -pl game-data verify
 
 集成测试基类是纯 JUnit、不启动 Spring 上下文，所以它自行解析上面那份 yaml，而不是通过 `DataProperties` 绑定。
 
-> 集成测试会 `flushdb` 当前 Redis 库并 drop Mongo 的 `game_test` 库。**别把它指向有真实数据的实例。**
+> 集成测试会 `flushdb` 配置的 Redis 测试库并 drop 配置的 Mongo 测试库。
+> 清理前强制检查：显式允许清理、Redis DB1～15、Mongo 库名以 `_test` 结尾、两者均为 loopback。
+> 名称校验不代表库内数据可丢弃，启用开关前必须核实。web/dbserver 共用这份测试配置。
 
 全仓回归使用 `mvn verify`（Windows 也可用 `.\mvnw.cmd verify`）。报告分别位于各模块
 `target/surefire-reports` 和 `target/failsafe-reports`。检查测试数、失败、错误和跳过数量，

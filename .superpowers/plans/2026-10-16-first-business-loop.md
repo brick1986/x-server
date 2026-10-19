@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
-> 状态：2026-10-16 已编写并自审，待用户审阅及选择执行方式；未开始实现。
+> 状态：2026-10-19 八项任务完成；独立审查发现已修复，181 项测试全部通过。本地分支尚未合并/部署。
 
 **Goal:** 完成账号密码注册、登录创角、鉴权读档/改名、业务日志、自动落盘与缓存冷回填的首个业务闭环，完成后停止扩展。
 
@@ -73,11 +73,11 @@
 - `ProfileRequest()`、`RenameRequest(display_name=1)`、`ProfileResponse(profile=1)`、`LogoutRequest()`、`LogoutResponse(ok=1)`。
 - `ErrorResponse(code=1,message=2,request_id=3)`，code 为字符串；ID/时间均 int64，其余按含义为 string/bool/message。
 
-- [ ] 写 LoginContractTest / PlayerContractTest：序列化后 parseFrom 保留密码输入、长整型 ID、中文昵称；断言 LoginResponse 旧字段号为 1/2，LoginRequest 字段号 1 不再是有效字段。
-- [ ] 跑 `mvn -pl game-contract test`，确认新契约尚不存在导致失败。
-- [ ] 更新/新增三份 proto 及 import，生成代码由 Maven 管理，禁止提交 target 下生成类。
-- [ ] 重跑同命令通过；每个新增请求/响应至少有一次真实 toByteArray/parseFrom 断言。
-- [ ] 提交 `feat(contract): define account and player loop messages`，同步 PROGRESS.md。
+- [x] 写 LoginContractTest / PlayerContractTest：序列化后 parseFrom 保留密码输入、长整型 ID、中文昵称；断言 LoginResponse 旧字段号为 1/2，LoginRequest 字段号 1 不再是有效字段。
+- [x] 跑 `mvn -pl game-contract test`，确认新契约尚不存在导致失败。
+- [x] 更新/新增三份 proto 及 import，生成代码由 Maven 管理，禁止提交 target 下生成类。
+- [x] 重跑同命令通过；每个新增请求/响应至少有一次真实 toByteArray/parseFrom 断言。
+- [x] 提交 `feat(contract): define account and player loop messages`，同步 PROGRESS.md。
 
 ### Task 2：安全的账号注册与 Mongo 唯一身份
 
@@ -92,12 +92,12 @@
 - `GameException(int status,String code,String publicMessage)`，不把敏感输入拼入异常。
 - `WebProperties` 前缀 `game.web`：sessionTtlSeconds=86400（60～604800）、authWindowSeconds=60（1～3600）、authIpLimit=60（1～10000）、authAccountLimit=10（1～1000）、bizLogDirectory=`logs/biz`；启动校验，保留时间固定 48h。
 
-- [ ] 写失败用例：同密码两次 hash 不同但均匹配；错误密码失败；盐/输出字节数及工作因子正确；空密码/14或129码点拒绝、15/128允许，补充字符按码点计数。
-- [ ] 给测试基类增加 `game.data.redis-database`（默认15，范围1～15）、`game.data.allow-test-cleanup`（默认false）；Mongo 库名必须以 `_test` 结尾，Redis/Mongo host 必须为 loopback。纯测试用例断言库0、生产库名、非本地及未启用清理时，在 flush/drop 前失败。
-- [ ] 在测试配置中明确使用独立 Redis DB15 与 Mongo game_test；只读取/输出脱敏目标，不打印密码。未确认 DB15 可丢弃时不设置 cleanup=true、不执行 IT；选择其他已确认的1～15库或请求确认，不自行覆盖。
-- [ ] 写 Mongo IT：两仓库并发插入同一规范化 username，只有一个成功、失败映射409；同账号角色绑定固定；markPlayerInitialized 仅更新匹配账号/uid，找不到记录报完整性错误。
-- [ ] 运行定向单测与 IT 确认失败；实现 JDK PBKDF2、规则及仓库。注册 insert 前懒创建 `username_unique` 唯一索引；仅 DuplicateKey 转409，其他 Mongo 错误保留给503映射。掉库重建测试夹具需重建仓库实例，避免错误复用已建索引标记。
-- [ ] 单测与隔离 IT 全通过；验证普通 GameApplicationTest 不因构造仓库访问 Mongo。提交 `feat(web): add password credentials and unique accounts`。
+- [x] 写失败用例：同密码两次 hash 不同但均匹配；错误密码失败；盐/输出字节数及工作因子正确；空密码/14或129码点拒绝、15/128允许，补充字符按码点计数。
+- [x] 给测试基类增加 `game.data.redis-database`（默认15，范围1～15）、`game.data.allow-test-cleanup`（默认false）；Mongo 库名必须以 `_test` 结尾，Redis/Mongo host 必须为 loopback。纯测试用例断言库0、生产库名、非本地及未启用清理时，在 flush/drop 前失败。
+- [x] 在测试配置中明确使用独立 Redis DB15 与 Mongo game_test；只读取/输出脱敏目标，不打印密码。未确认 DB15 可丢弃时不设置 cleanup=true、不执行 IT；选择其他已确认的1～15库或请求确认，不自行覆盖。
+- [x] 写 Mongo IT：两仓库并发插入同一规范化 username，只有一个成功、失败映射409；同账号角色绑定固定；markPlayerInitialized 仅更新匹配账号/uid，找不到记录报完整性错误。
+- [x] 运行定向单测与 IT 确认失败；实现 JDK PBKDF2、规则及仓库。注册 insert 前懒创建 `username_unique` 唯一索引；仅 DuplicateKey 转409，其他 Mongo 错误保留给503映射。掉库重建测试夹具需重建仓库实例，避免错误复用已建索引标记。
+- [x] 单测与隔离 IT 全通过；验证普通 GameApplicationTest 不因构造仓库访问 Mongo。提交 `feat(web): add password credentials and unique accounts`。
 
 ### Task 3：可失效会话、并发退出与凭证限流
 
@@ -108,11 +108,11 @@
 - `SessionStore(RedissonClient,JsonCodec,SecureRandom,Clock,WebProperties)`；`IssuedSession issue(long accountId,long uid)`、`SessionIdentity authenticate(String token)`、`void revoke(SessionIdentity)`；内部 record `IssuedSession(String token,SessionIdentity identity)` 必须脱敏 toString。
 - `LoginRateLimiter(RedissonClient,WebProperties)`；`void checkIp(String remoteAddress)`、`void checkAccount(String normalizedUsername)`。
 
-- [ ] 写 session 单测/IT：新token为43字符URL-safe Base64、仅摘要进入Redis；过期/伪造拒绝；再次issue旧token拒绝；current写失败留下的session拒绝；已鉴权旧identity revoke不得删除新current。
-- [ ] 写限流IT：同key窗口内前N次允许、N+1为429；TTL不会因被拒绝续期；到期恢复；不同IP/账号隔离；写异常不得允许继续。
-- [ ] 按验证约定跑失败测试，再实现 `auth:session:<sha256>`、`auth:current:<accountId>` 两种TTL键；所有时间与TTL由服务端给出。authenticate 检查格式、session、绝对到期与current。
-- [ ] revoke仅对current执行单key Lua compare-and-delete，随后删自己的session。限流单key Lua执行INCR，首次计数EXPIRE；账号限流键使用规范化用户名摘要，避免敏感原文/特殊字符进入key。
-- [ ] 定向单测/IT通过；确认脚本不跨slot，不标脏。提交 `feat(web): add expiring sessions and authentication throttling`。
+- [x] 写 session 单测/IT：新token为43字符URL-safe Base64、仅摘要进入Redis；过期/伪造拒绝；再次issue旧token拒绝；current写失败留下的session拒绝；已鉴权旧identity revoke不得删除新current。
+- [x] 写限流IT：同key窗口内前N次允许、N+1为429；TTL不会因被拒绝续期；到期恢复；不同IP/账号隔离；写异常不得允许继续。
+- [x] 按验证约定跑失败测试，再实现 `auth:session:<sha256>`、`auth:current:<accountId>` 两种TTL键；所有时间与TTL由服务端给出。authenticate 检查格式、session、绝对到期与current。
+- [x] revoke仅对current执行单key Lua compare-and-delete，随后删自己的session。限流单key Lua执行INCR，首次计数EXPIRE；账号限流键使用规范化用户名摘要，避免敏感原文/特殊字符进入key。
+- [x] 定向单测/IT通过；确认脚本不跨slot，不标脏。提交 `feat(web): add expiring sessions and authentication throttling`。
 
 ### Task 4：可验证失败语义的磁盘业务日志
 
@@ -123,10 +123,10 @@
 - `BizLogger.append(BizEvent): void`，失败抛 `GameException(503,"BUSINESS_LOG_UNAVAILABLE",...)`。
 - `FileBizLogger(Path directory,Clock clock)` implements BizLogger, AutoCloseable；new不连外部存储，首次append懒开文件；`close(): void`。
 
-- [ ] 写@TempDir测试：每事件一行合法JSON，反斜线/中文/引号不破坏记录；并发append不交错；目录是普通文件时append失败；轮换后仍可读取旧日志；只删除超过48h的自有文件，不删当前文件/其他前缀/软链接。
-- [ ] 运行 FileBizLoggerTest 确认失败，实现进程UUID区分文件、UTC按日轮换、FileChannel追加并force(true)，用同步临界区覆盖完整事件写入。时间命名包含本组件固定前缀及可解析创建时间。
-- [ ] JSON只含声明字段，before/after仅白名单变更字段；关闭文件操作不吞写入失败。保留窗口清理在轮换时执行，使用NOFOLLOW_LINKS，仅清本目录普通自有文件。
-- [ ] 测试通过并确认日志无凭证对象。提交 `feat(web): add durable business intent logging`。
+- [x] 写@TempDir测试：每事件一行合法JSON，反斜线/中文/引号不破坏记录；并发append不交错；目录是普通文件时append失败；轮换后仍可读取旧日志；只删除超过48h的自有文件，不删当前文件/其他前缀/软链接。
+- [x] 运行 FileBizLoggerTest 确认失败，实现进程UUID区分文件、UTC按日轮换、FileChannel追加并force(true)，用同步临界区覆盖完整事件写入。时间命名包含本组件固定前缀及可解析创建时间。
+- [x] JSON只含声明字段，before/after仅白名单变更字段；关闭文件操作不吞写入失败。保留窗口清理在轮换时执行，使用NOFOLLOW_LINKS，仅清本目录普通自有文件。
+- [x] 测试通过并确认日志无凭证对象。提交 `feat(web): add durable business intent logging`。
 
 ### Task 5：默认角色的幂等初始化与档案服务
 
@@ -137,12 +137,12 @@
 - `PlayerService(LockScope,MongoAccountRepository,BizLogger,Clock)`；`PlayerProfile ensureInitialized(long accountId,String requestId)`、`PlayerProfile get(SessionIdentity)`、`PlayerProfile rename(SessionIdentity,String displayName,String requestId)`。
 - 使用 Task2 仓库/错误、Task3身份、Task4日志；只由本服务组装玩家key。
 
-- [ ] 写 mock单测：日志异常时verify(ctx,never()).put；先append后put的InOrder；同名rename不append/put；已初始化却缺档案返回500完整性错误；错误归属403；缺失账号不产生profile。
-- [ ] 写IT：双实例并发首次初始化均返回同一预留uid；先模拟mark失败、修改已有档案后重试，档案不被重置；读miss由Mongo回填；并发rename串行且持锁；非法昵称及Unicode码点边界拒绝。
-- [ ] 跑失败测试；锁优先级为account=-1/guild=0/player=1。初始化在锁前读取绑定，在一次account+player锁内重读并校验绑定不变；所有返回的profile均校验归属。
-- [ ] 默认档案时间由account.createdAt确定，昵称 `Player_<uid>`；只有未初始化且档案不存在才append+put；已有档案只补初始化标记，不重置。标记完成后才返回给登录编排。
-- [ ] get/rename仅持player锁；检查昵称后才改对象，rename只记displayName前后值。调用方不重用旧对象自动重试。
-- [ ] 单测/IT通过。提交 `feat(web): implement idempotent player creation and profile updates`。
+- [x] 写 mock单测：日志异常时verify(ctx,never()).put；先append后put的InOrder；同名rename不append/put；已初始化却缺档案返回500完整性错误；错误归属403；缺失账号不产生profile。
+- [x] 写IT：双实例并发首次初始化均返回同一预留uid；先模拟mark失败、修改已有档案后重试，档案不被重置；读miss由Mongo回填；并发rename串行且持锁；非法昵称及Unicode码点边界拒绝。
+- [x] 跑失败测试；锁优先级为account=-1/guild=0/player=1。初始化在锁前读取绑定，在一次account+player锁内重读并校验绑定不变；所有返回的profile均校验归属。
+- [x] 默认档案时间由account.createdAt确定，昵称 `Player_<uid>`；只有未初始化且档案不存在才append+put；已有档案只补初始化标记，不重置。标记完成后才返回给登录编排。
+- [x] get/rename仅持player锁；检查昵称后才改对象，rename只记displayName前后值。调用方不重用旧对象自动重试。
+- [x] 单测/IT通过。提交 `feat(web): implement idempotent player creation and profile updates`。
 
 ### Task 6：HTTP 鉴权与完整业务入口
 
@@ -155,14 +155,14 @@
 - `ProfileMapper.toMessage(PlayerProfile): PlayerProfileMessage`。
 - `ApiErrorWriter.write(HttpServletResponse,int status,String code,String message,String requestId): void`，供filter与exception handler共用，直接写Protobuf二进制。
 
-- [ ] 写AuthServiceTest：注册先校验/散列、再发两个独立ID并插入；登录未知账号也matches假散列且401相同；错密码不创角不发token；只有profile初始化成功才issue。
-- [ ] 写MVC契约测试：五条spec接口完整成功响应；401/403/409/429/503/500错误为统一Protobuf；空/畸形body为400，错误媒体类型415；未实现方法405，不把其误映射500。
-- [ ] 写filter测试：身份在正常/异常路径均清理，MDC原有无关字段保留；旧身份不泄漏给下个请求；chunked与伪造Content-Length的16385字节为413，16384允许进入解析；过大请求拒绝发生在凭证散列前。
-- [ ] 跑失败测试，依赖接口按前任务实现 AuthService 与五个Controller入口。登录/注册路径严格匹配，其他受保护/api路径必须鉴权；非法Bearer不查询账号，接口不接受任意目标uid。
-- [ ] 用顺序明确的filter注册完成：请求ID及16KiB限制 → auth路径IP限流/受保护路径token验证 → controller输入校验及账号限流。body wrapper通过限制为上限+1的读取发现超大输入，不能先readAllBytes再判断。
-- [ ] 显式装配Clock/SecureRandom、各服务与Properties；启用ProtobufHttpMessageConverter和`spring.threads.virtual.enabled=true`。配置项绑定环境变量并给出默认值；保留懒连接和上下文单测，无启动期密码/数据库副作用。
-- [ ] 完整映射异常：锁/Redis/Mongo/日志为503，完整性错误500，返回短公共消息；未知错误仅记录requestId及异常类别，避免输出携带敏感值的异常message。
-- [ ] 定向单测通过。提交 `feat(web): expose authenticated protobuf account and player APIs`。
+- [x] 写AuthServiceTest：注册先校验/散列、再发两个独立ID并插入；登录未知账号也matches假散列且401相同；错密码不创角不发token；只有profile初始化成功才issue。
+- [x] 写MVC契约测试：五条spec接口完整成功响应；401/403/409/429/503/500错误为统一Protobuf；空/畸形body为400，错误媒体类型415；未实现方法405，不把其误映射500。
+- [x] 写filter测试：身份在正常/异常路径均清理，MDC原有无关字段保留；旧身份不泄漏给下个请求；chunked与伪造Content-Length的16385字节为413，16384允许进入解析；过大请求拒绝发生在凭证散列前。
+- [x] 跑失败测试，依赖接口按前任务实现 AuthService 与五个Controller入口。登录/注册路径严格匹配，其他受保护/api路径必须鉴权；非法Bearer不查询账号，接口不接受任意目标uid。
+- [x] 用顺序明确的filter注册完成：请求ID及16KiB限制 → auth路径IP限流/受保护路径token验证 → controller输入校验及账号限流。body wrapper通过限制为上限+1的读取发现超大输入，不能先readAllBytes再判断。
+- [x] 显式装配Clock/SecureRandom、各服务与Properties；启用ProtobufHttpMessageConverter和`spring.threads.virtual.enabled=true`。配置项绑定环境变量并给出默认值；保留懒连接和上下文单测，无启动期密码/数据库副作用。
+- [x] 完整映射异常：锁/Redis/Mongo/日志为503，完整性错误500，返回短公共消息；未知错误仅记录requestId及异常类别，避免输出携带敏感值的异常message。
+- [x] 定向单测通过。提交 `feat(web): expose authenticated protobuf account and player APIs`。
 
 ### Task 7：自动落盘与冷回填的端到端验收
 
@@ -172,25 +172,25 @@
 落盘侧创建隔离的Spring调度上下文，注册生产FlushOrchestrator/FlushScheduler/GracefulShutdown与测试配置，无Mock落盘替代。
 web test scope依赖dbserver普通jar及game-data test-jar，生产不引入dbserver。
 
-- [ ] dbserver可执行jar改classifier=`exec`，普通jar供test scope引用；web声明dbserver版本`${project.version}`、scope=test，核对运行时依赖树不含dbserver。
-- [ ] 写BusinessLoopIT失败用例：register→login→profile→rename→等待调度把JSON落入Mongo→确认dirty/inflight无该key→只删除该profile缓存→profile读取内容一致，Redis被回填。测试不手工调用mongo.upsert/flushOnce来冒充自动落盘。
-- [ ] 夹具先应用隔离参数，使用独立客户端代表web/dbserver；轮次500ms、最多等待15s、失败输出脱敏状态；清库之前先停止上一用例调度，防止后台与下一用例清理竞争。
-- [ ] 写AccountConcurrencyIT：两套service对象共享同库，栅栏控制并发注册/首次登录；断言账号与profile数量、稳定uid和current有效token唯一；已有昵称不被并发初始化重置。
-- [ ] 补端到端两账号隔离、再次登录/退出、过期token，以及故障注入日志写失败阻断profile修改。真实后端验证与单元异常模拟分别标注，不混称。
-- [ ] `mvn -pl game-web -am "-Dit.test=BusinessLoopIT,AccountConcurrencyIT" -Dfailsafe.failIfNoSpecifiedTests=false verify` 通过，确认两个IT实际执行且无skip。
-- [ ] 检查 `mvn -pl game-web dependency:tree -Dscope=runtime` 的生产依赖方向；提交 `test(web): verify full business loop through scheduled persistence`。
+- [x] dbserver可执行jar改classifier=`exec`，普通jar供test scope引用；web声明dbserver版本`${project.version}`、scope=test，核对运行时依赖树不含dbserver。
+- [x] 写BusinessLoopIT失败用例：register→login→profile→rename→等待调度把JSON落入Mongo→确认dirty/inflight无该key→只删除该profile缓存→profile读取内容一致，Redis被回填。测试不手工调用mongo.upsert/flushOnce来冒充自动落盘。
+- [x] 夹具先应用隔离参数，使用独立客户端代表web/dbserver；轮次500ms、最多等待15s、失败输出脱敏状态；清库之前先停止上一用例调度，防止后台与下一用例清理竞争。
+- [x] 写AccountConcurrencyIT：两套service对象共享同库，栅栏控制并发注册/首次登录；断言账号与profile数量、稳定uid和current有效token唯一；已有昵称不被并发初始化重置。
+- [x] 补端到端两账号隔离、再次登录/退出、过期token，以及故障注入日志写失败阻断profile修改。真实后端验证与单元异常模拟分别标注，不混称。
+- [x] `mvn -pl game-web -am "-Dit.test=BusinessLoopIT,AccountConcurrencyIT" -Dfailsafe.failIfNoSpecifiedTests=false verify` 通过，确认两个IT实际执行且无skip。
+- [x] 检查 `mvn -pl game-web dependency:tree -Dscope=runtime` 的生产依赖方向；提交 `test(web): verify full business loop through scheduled persistence`。
 
 ### Task 8：全仓验证、使用说明与状态收尾
 
 **Files:** 更新 README.md、DEVELOPMENT.md、PROGRESS.md、总纲、本spec/plan、模块设计相关状态；新增 docs/first-business-loop.md。
 仅更正与本轮实际交付有关的源码注释（包括 DbServerApplication 中“后续 Plan C”过期说明）。
 
-- [ ] 编写 docs/first-business-loop.md：五个HTTP接口字段/错误码、注册登录及改名示例、生成Protobuf二进制与解析命令、环境变量、日志路径、测试库隔离、启停和验收顺序。示例不得使用真实密码/token。
-- [ ] 更新 DEVELOPMENT.md：dbserver `*-exec.jar` 启动路径，账号同步Mongo例外，新配置和测试清理开关；说明上线须HTTPS、本轮未交付找回密码/多角色/后续玩法。
-- [ ] 执行 `mvn verify`；逐模块读取新报告统计失败/错误/跳过，测试失败先定位根因，不调整断言掩盖回归。修复后重跑受影响范围，必要时再跑全仓。
-- [ ] 依执行方式完成最终独立代码审查，重点检查凭证泄漏、失锁/跨存储失败、session竞态、文件清理和测试隔离；处理有效发现并复验。
-- [ ] 检查Markdown本地链接、`git diff --check`、生成物/日志/本地配置未入库；PROGRESS记录本次命令、日期、精确测试数及尚存限制。
-- [ ] 只有全部闭环验收通过后将spec与总纲标“已实现且已验证”，计划勾选反映实际执行；提交 `docs: document and verify the first business loop`。不未经证据标记已合并/已部署。
+- [x] 编写 docs/first-business-loop.md：五个HTTP接口字段/错误码、注册登录及改名示例、生成Protobuf二进制与解析命令、环境变量、日志路径、测试库隔离、启停和验收顺序。示例不得使用真实密码/token。
+- [x] 更新 DEVELOPMENT.md：dbserver `*-exec.jar` 启动路径，账号同步Mongo例外，新配置和测试清理开关；说明上线须HTTPS、本轮未交付找回密码/多角色/后续玩法。
+- [x] 执行 `mvn verify`；逐模块读取新报告统计失败/错误/跳过，测试失败先定位根因，不调整断言掩盖回归。修复后重跑受影响范围，必要时再跑全仓。
+- [x] 依执行方式完成最终独立代码审查，重点检查凭证泄漏、失锁/跨存储失败、session竞态、文件清理和测试隔离；处理有效发现并复验。
+- [x] 检查Markdown本地链接、`git diff --check`、生成物/日志/本地配置未入库；PROGRESS记录本次命令、日期、精确测试数及尚存限制。
+- [x] 只有全部闭环验收通过后将spec与总纲标“已实现且已验证”，计划勾选反映实际执行；提交 `docs: document and verify the first business loop`。不未经证据标记已合并/已部署。
 
 ## 计划自审与执行交接
 
@@ -199,4 +199,4 @@ web test scope依赖dbserver普通jar及game-data test-jar，生产不引入dbse
 - 架构风险保持显式：账号与玩家并非跨存储事务；默认角色初始化后丢失档案会报错，不自动重建；Redis秒级数据丢失接受原有边界。
 - 推荐 **Native**：由当前会话依序实现，最后独立审查。八项任务共享身份、异常和协议接口，连续实现能减少交接不一致。
 - 备选 **Subagent-driven**：每项由独立实现者和审查者推进，检查更细，消耗更多上下文。
-- 用户审阅本计划并选择执行方式后开始实现；当前所有任务仍未执行。
+- 用户已确认 Native 连续执行；Task 1～8 已执行；最终全仓验证与独立审查修复记录见 PROGRESS.md。
