@@ -1,9 +1,14 @@
 package io.github.brick.web.auth;
+
 import java.security.SecureRandom;
+
 import org.junit.jupiter.api.Test;
+
 import static org.assertj.core.api.Assertions.*;
+
 class PasswordHasherTest {
-    @Test void saltedHashesVerifyOnlyTheOriginalPassword() {
+    @Test
+    void saltedHashesVerifyOnlyTheOriginalPassword() {
         var hasher = new PasswordHasher(new SecureRandom());
         String first = hasher.hash("a strong password 123"), second = hasher.hash("a strong password 123");
         assertThat(first).isNotEqualTo(second).doesNotContain("a strong password");

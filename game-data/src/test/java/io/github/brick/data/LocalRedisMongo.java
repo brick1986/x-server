@@ -36,102 +36,106 @@ import java.util.List;
  */
 public abstract class LocalRedisMongo {
 
-	private static final String CONFIG_FILE = "it-config.yaml";
+    private static final String CONFIG_FILE = "it-config.yaml";
 
-	private static final PropertySource<?> PROPS = loadTestYaml();
+    private static final PropertySource<?> PROPS = loadTestYaml();
 
-	protected static final String MONGO_DB = prop("game.data.mongo-db", "game_test");
+    protected static final String MONGO_DB = prop("game.data.mongo-db", "game_test");
 
-	protected static RedissonClient redis;
-	protected static MongoClient mongo;
+    protected static RedissonClient redis;
+    protected static MongoClient mongo;
 
-	private static PropertySource<?> loadTestYaml() {
-		ClassPathResource resource = new ClassPathResource(CONFIG_FILE);
-		if (!resource.exists()) {
-			// 该文件含本机密码，故在 .gitignore 中——新 clone 的仓库里不存在。
-			// 直接抛 FileNotFoundException 只会给出「资源不存在」，看不出该怎么办，故在此明示。
-			throw new IllegalStateException("""
-					缺少集成测试配置 game-data/src/test/resources/%s。
-					该文件含本机 Redis 密码，不入库（见 .gitignore）。请复制模板并改成你本机的值：
-					    cp game-data/src/test/resources/%s.example game-data/src/test/resources/%s
-					详见 DEVELOPMENT.md「跑测试」一节。"""
-					.formatted(CONFIG_FILE, CONFIG_FILE, CONFIG_FILE));
-		}
-		try {
-			List<PropertySource<?>> sources = new YamlPropertySourceLoader()
-					.load("test-config", resource);
-			return sources.isEmpty() ? null : sources.get(0);
-		} catch (IOException e) {
-			throw new IllegalStateException("读取测试配置 " + CONFIG_FILE + " 失败", e);
-		}
-	}
+    private static PropertySource<?> loadTestYaml() {
+        ClassPathResource resource = new ClassPathResource(CONFIG_FILE);
+        if (!resource.exists()) {
+            // 该文件含本机密码，故在 .gitignore 中——新 clone 的仓库里不存在。
+            // 直接抛 FileNotFoundException 只会给出「资源不存在」，看不出该怎么办，故在此明示。
+            throw new IllegalStateException("""
+                    缺少集成测试配置 game-data/src/test/resources/%s。
+                    该文件含本机 Redis 密码，不入库（见 .gitignore）。请复制模板并改成你本机的值：
+                        cp game-data/src/test/resources/%s.example game-data/src/test/resources/%s
+                    详见 DEVELOPMENT.md「跑测试」一节。"""
+                    .formatted(CONFIG_FILE, CONFIG_FILE, CONFIG_FILE));
+        }
+        try {
+            List<PropertySource<?>> sources = new YamlPropertySourceLoader()
+                    .load("test-config", resource);
+            return sources.isEmpty() ? null : sources.get(0);
+        } catch (IOException e) {
+            throw new IllegalStateException("读取测试配置 " + CONFIG_FILE + " 失败", e);
+        }
+    }
 
-	private static String prop(String key, String fallback) {
-		Object v = PROPS == null ? null : PROPS.getProperty(key);
-		return v == null ? fallback : v.toString();
-	}
+    private static String prop(String key, String fallback) {
+        Object v = PROPS == null ? null : PROPS.getProperty(key);
+        return v == null ? fallback : v.toString();
+    }
 
-	@BeforeAll
-	static void startClients() {
-		TestDatabaseSafety.validate(prop("game.data.redis-address", "redis://127.0.0.1:6379"),
-			Integer.parseInt(prop("game.data.redis-database", "15")),
-			prop("game.data.mongo-uri", "mongodb://localhost:27018"), MONGO_DB,
-			Boolean.parseBoolean(prop("game.data.allow-test-cleanup", "false")));
-		redis = newClient(8);
-		mongo = newMongoClient();
-	}
+    @BeforeAll
+    static void startClients() {
+        TestDatabaseSafety.validate(prop("game.data.redis-address", "redis://127.0.0.1:6379"),
+                Integer.parseInt(prop("game.data.redis-database", "15")),
+                prop("game.data.mongo-uri", "mongodb://localhost:27018"), MONGO_DB,
+                Boolean.parseBoolean(prop("game.data.allow-test-cleanup", "false")));
+        redis = newClient(8);
+        mongo = newMongoClient();
+    }
 
-	/** 独立落盘上下文使用；调用方负责 close。 */
-	protected static MongoClient newMongoClient() {
-		return MongoClients.create(prop("game.data.mongo-uri", "mongodb://localhost:27018"));
-	}
+    /**
+     * 独立落盘上下文使用；调用方负责 close。
+     */
+    protected static MongoClient newMongoClient() {
+        return MongoClients.create(prop("game.data.mongo-uri", "mongodb://localhost:27018"));
+    }
 
-	/**
-	 * 按测试 yaml 的连接参数另建一个独立客户端，供需要「第二个连接」的用例使用
-	 * （如 all-or-nothing 用例要另一客户端占住锁）。调用方负责 shutdown。
-	 */
-	protected static RedissonClient newClient() {
-		return newClient(4);
-	}
+    /**
+     * 按测试 yaml 的连接参数另建一个独立客户端，供需要「第二个连接」的用例使用
+     * （如 all-or-nothing 用例要另一客户端占住锁）。调用方负责 shutdown。
+     */
+    protected static RedissonClient newClient() {
+        return newClient(4);
+    }
 
-	private static RedissonClient newClient(int poolSize) {
-		Config cfg = new Config();
-		SingleServerConfig single = cfg.useSingleServer()
-				.setDatabase(Integer.parseInt(prop("game.data.redis-database", "15")))
-				.setAddress(prop("game.data.redis-address", "redis://127.0.0.1:6379"))
-				.setConnectionPoolSize(poolSize)
-				.setConnectionMinimumIdleSize(1);
+    private static RedissonClient newClient(int poolSize) {
+        Config cfg = new Config();
+        SingleServerConfig single = cfg.useSingleServer()
+                .setDatabase(Integer.parseInt(prop("game.data.redis-database", "15")))
+                .setAddress(prop("game.data.redis-address", "redis://127.0.0.1:6379"))
+                .setConnectionPoolSize(poolSize)
+                .setConnectionMinimumIdleSize(1);
 
-		// CI 用环境变量注入；未设则用 yaml 里的值
-		String envPwd = System.getenv("REDIS_TEST_PASSWORD");
-		String password = (envPwd != null && !envPwd.isEmpty())
-				? envPwd
-				: prop("game.data.redis-password", "");
-		// 空串不能传给 Redisson——它会当作「有密码」照样发 AUTH，连无鉴权实例反而失败
-		if (!password.isEmpty()) {
-			single.setPassword(password);
-		}
-		String username = prop("game.data.redis-username", "");
-		if (!username.isEmpty()) {
-			single.setUsername(username);
-		}
-		return Redisson.create(cfg);
-	}
+        // CI 用环境变量注入；未设则用 yaml 里的值
+        String envPwd = System.getenv("REDIS_TEST_PASSWORD");
+        String password = (envPwd != null && !envPwd.isEmpty())
+                ? envPwd
+                : prop("game.data.redis-password", "");
+        // 空串不能传给 Redisson——它会当作「有密码」照样发 AUTH，连无鉴权实例反而失败
+        if (!password.isEmpty()) {
+            single.setPassword(password);
+        }
+        String username = prop("game.data.redis-username", "");
+        if (!username.isEmpty()) {
+            single.setUsername(username);
+        }
+        return Redisson.create(cfg);
+    }
 
-	@AfterAll
-	static void stopClients() {
-		if (redis != null) redis.shutdown();
-		if (mongo != null) mongo.close();
-	}
+    @AfterAll
+    static void stopClients() {
+        if (redis != null) redis.shutdown();
+        if (mongo != null) mongo.close();
+    }
 
-	@BeforeEach
-	void flushAll() {
-		redis.getKeys().flushdb();
-		mongo.getDatabase(MONGO_DB).drop();
-	}
+    @BeforeEach
+    void flushAll() {
+        redis.getKeys().flushdb();
+        mongo.getDatabase(MONGO_DB).drop();
+    }
 
-	/** 当前 Mongo 测试库。 */
-	protected com.mongodb.client.MongoDatabase db() {
-		return mongo.getDatabase(MONGO_DB);
-	}
+    /**
+     * 当前 Mongo 测试库。
+     */
+    protected com.mongodb.client.MongoDatabase db() {
+        return mongo.getDatabase(MONGO_DB);
+    }
 }
