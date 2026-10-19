@@ -39,7 +39,13 @@
 
 ## 验证记录
 
-2026-10-19 09:33:17（Asia/Shanghai）执行 `mvn verify` 成功，未携带跳过选项：
+2026-10-19 后续维护：首个闭环涉及的 47 个 Java 文件已通过 IDEA 格式化。
+`WebConfiguration` 从 Spring 7 已弃用且标记移除的 `extendMessageConverters(List)`
+迁移至 `configureMessageConverters(HttpMessageConverters.ServerBuilder)`，通过 `addCustomConverter`
+将 Protobuf 转换器放在默认转换器之前。IDEA 复查该类无错误；变更后的全仓回归 181 项全部通过。
+新增 [项目协作约定](./AGENTS.md)：每次修改后格式化新增/修改的 Java 类，Git 提交标题和说明使用中文。
+
+2026-10-19 10:33:28（Asia/Shanghai）执行 `mvn verify` 成功，未携带跳过选项：
 
 | 模块 | 单元测试 | 集成测试 | 失败 / 错误 / 跳过 |
 | --- | ---: | ---: | --- |
