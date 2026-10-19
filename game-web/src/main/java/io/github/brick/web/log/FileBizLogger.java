@@ -46,8 +46,14 @@ public final class FileBizLogger implements BizLogger,AutoCloseable {
         try(var files=Files.newDirectoryStream(directory)) {
             for(Path file:files) {
                 var matcher=OWNED.matcher(file.getFileName().toString());
-                if(matcher.matches() && Files.isRegularFile(file,LinkOption.NOFOLLOW_LINKS)
-                    && Long.parseLong(matcher.group(1))<cutoff) Files.delete(file);
+                if(matcher.matches() && Files.isRegularFile(file,LinkOption.NOFOLLOW_LINKS)) {
+                    // A segment can contain writes until the end of its UTC day. Creation age
+                    // alone would discard late records after only about 24 hours.
+                    long segmentEnd=Instant.ofEpochMilli(Long.parseLong(matcher.group(1)))
+                        .atZone(ZoneOffset.UTC).toLocalDate().plusDays(1)
+                        .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
+                    if(segmentEnd<=cutoff) Files.delete(file);
+                }
             }
         }
     }

@@ -13,14 +13,17 @@ public final class RequestBodyLimitFilter implements Filter {
     public RequestBodyLimitFilter(ApiErrorWriter errors){this.errors=errors;}
     @Override public void doFilter(ServletRequest raw,ServletResponse rawResponse,FilterChain chain)throws IOException,ServletException{
         var request=(HttpServletRequest)raw;var response=(HttpServletResponse)rawResponse;
-        String path=request.getRequestURI().substring(request.getContextPath().length());
-        if(!path.startsWith("/api/")){chain.doFilter(raw,rawResponse);return;}
         String requestId=UUID.randomUUID().toString();MDC.put("requestId",requestId);
         response.setHeader("X-Request-Id",requestId);response.setHeader("Cache-Control","no-store");
         try{
             if(request.getContentLengthLong()>LIMIT)throw tooLarge();
             byte[] bytes=request.getInputStream().readNBytes(LIMIT+1);
             if(bytes.length>LIMIT)throw tooLarge();
+            // Container /api/* mapping already selected this filter. Never bypass on the raw URI:
+            // Tomcat/MVC normalize encoded segments and matrix parameters before routing.
+            String path=request.getRequestURI().substring(request.getContextPath().length());
+            if(!path.matches("/api(?:/[A-Za-z0-9_-]+)+"))
+                throw new GameException(400,"INVALID_PATH","请使用规范 API 路径");
             chain.doFilter(new BufferedRequest(request,bytes),response);
         }catch(Exception error){errors.failure(response,error);}
         finally{MDC.remove("requestId");}

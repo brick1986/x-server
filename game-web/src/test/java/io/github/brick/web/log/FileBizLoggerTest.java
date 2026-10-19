@@ -49,4 +49,27 @@ class FileBizLoggerTest {
         }
         try(var files=Files.list(temp)) { assertThat(files.count()).isEqualTo(2); }
     }
+    @Test void retentionKeepsLateRecordsForAtLeastFortyEightHours() throws Exception {
+        class MutableClock extends Clock {
+            Instant time=Instant.parse("2026-10-16T00:01:00Z");
+            public ZoneId getZone(){return ZoneOffset.UTC;}
+            public Clock withZone(ZoneId zone){return this;}
+            public Instant instant(){return time;}
+        }
+        var clock=new MutableClock();
+        try(var logger=new FileBizLogger(temp,clock)) {
+            logger.append(event("early"));
+            Path first;
+            try(var files=Files.list(temp)){first=files.findFirst().orElseThrow();}
+            clock.time=Instant.parse("2026-10-16T23:59:00Z");
+            logger.append(event("late"));
+            clock.time=Instant.parse("2026-10-18T00:02:00Z");
+            logger.append(event("next-day"));
+            assertThat(first).exists();
+            assertThat(Files.readString(first)).contains("late");
+            clock.time=Instant.parse("2026-10-19T00:01:00Z");
+            logger.append(event("expired"));
+            assertThat(first).doesNotExist();
+        }
+    }
 }

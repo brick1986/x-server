@@ -30,4 +30,15 @@ class RequestBodyLimitFilterTest {
             assertThat(MDC.get("requestId")).isNull(); assertThat(MDC.get("unrelated")).isEqualTo("keep");
         } finally { MDC.clear(); }
     }
+    @Test void mappedApiAliasesStillEnforceTheStreamLimit() throws Exception {
+        for(String uri:new String[]{"/api;x/auth/register","/%61pi/auth/register"}) {
+            var request=new MockHttpServletRequest("POST",uri);
+            request.setContent(new byte[16385]);
+            var response=new MockHttpServletResponse();
+            var reached=new AtomicBoolean();
+            new RequestBodyLimitFilter(new ApiErrorWriter()).doFilter(request,response,(a,b)->reached.set(true));
+            assertThat(response.getStatus()).as(uri).isEqualTo(413);
+            assertThat(reached).isFalse();
+        }
+    }
 }

@@ -14,7 +14,7 @@ public final class AuthFilter implements Filter {
         String path=request.getRequestURI().substring(request.getContextPath().length());
         RequestIdentity.clear();
         try {
-            if(!path.startsWith("/api/")) {chain.doFilter(request,response);return;}
+            // Registered only for /api/*; requestBoundary has rejected noncanonical paths.
             if(path.equals("/api/auth/register") || path.equals("/api/auth/login")) {
                 limiter.checkIp(request.getRemoteAddr()); chain.doFilter(request,response);return;
             }

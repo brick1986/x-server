@@ -62,4 +62,18 @@ class BusinessApiTest {
         r=mvc.perform(post("/api/auth/logout").header("Authorization","Bearer valid").contentType("application/x-protobuf")).andReturn().getResponse();
         assertThat(r.getStatus()).isEqualTo(200);assertThat(LogoutResponse.parseFrom(r.getContentAsByteArray()).getOk()).isTrue();verify(sessions).revoke(identity);
     }
+    @Test void normalizedApiAliasesCannotBypassRequestBoundaries() throws Exception {
+        when(auth.register("alice","long password 123")).thenReturn(new Account(1,"alice","hidden",11,false,100));
+        var body=RegisterRequest.newBuilder().setUsername("alice").setPassword("long password 123").build().toByteArray();
+        for(String path:new String[]{"/api;x/auth/register","/%61pi/auth/register"}) {
+            for(boolean authenticated:new boolean[]{false,true}) {
+                var request=post(java.net.URI.create(path)).contentType("application/x-protobuf").content(body);
+                if(authenticated)request.header("Authorization","Bearer valid");
+                var response=mvc.perform(request).andReturn().getResponse();
+                assertThat(response.getStatus()).as(path).isEqualTo(400);
+                assertThat(ErrorResponse.parseFrom(response.getContentAsByteArray()).getRequestId()).isNotBlank();
+            }
+        }
+        verifyNoInteractions(auth);
+    }
 }
