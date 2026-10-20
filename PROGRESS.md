@@ -39,6 +39,14 @@
 
 ## 验证记录
 
+2026-10-19 文档协作整理：公共规则集中到 [AGENTS.md](./AGENTS.md)，[CLAUDE.md](./CLAUDE.md)
+通过 `@AGENTS.md` 导入；原工具使用说明整理至 [开发工具使用指南](./docs/development-tools.md)，
+README 和 DEVELOPMENT 补充入口。保留既有 `.superpowers/specs/` 与 `.superpowers/plans/`，
+明确其为两种工具共享的设计和计划，以及项目文档随代码提交、合并和冲突整合的要求。
+本轮仅修改文档，不涉及 Java 格式化或重新运行 Maven 测试；下方 181 项测试结果为此前代码验证记录。
+本次文档验证：PowerShell 检查上述 6 份文档的 34 个本地 Markdown 文件链接均可解析，
+CodeGraph 锚点及 `CLAUDE.md` 首行导入有效；新共享指南未被 Git 忽略；`git diff --check HEAD` 通过。
+
 2026-10-19 后续维护：首个闭环涉及的 47 个 Java 文件已通过 IDEA 格式化。
 `WebConfiguration` 从 Spring 7 已弃用且标记移除的 `extendMessageConverters(List)`
 迁移至 `configureMessageConverters(HttpMessageConverters.ServerBuilder)`，通过 `addCustomConverter`
@@ -88,7 +96,6 @@
 
 ## 文档维护规则
 
-1. 本文件记录进度和验证证据；[架构总纲](./.superpowers/specs/00-architecture-overview.md) 维护设计入口和里程碑。
-2. 功能、spec 状态与当前计划勾选同步更新；测试记录包含日期、命令、范围、数量和结果。
-3. 历史计划保留当时步骤，不将旧未勾选项直接当作当前待办，也不补写没有证据的历史验证。
-4. 架构修订写入新设计并登记总纲，旧设计标明修订来源。
+统一遵循 [AGENTS.md](./AGENTS.md) 的文档职责、交接和分支合并要求。
+本文件记录进度与验证证据；[架构总纲](./.superpowers/specs/00-architecture-overview.md) 维护设计入口和里程碑。
+功能状态、spec 状态与当前计划勾选同步更新；测试记录包含日期、命令、范围、数量和结果，不补写没有证据的历史验证。

@@ -1,5 +1,11 @@
 # x-server
-a game server for learning CC
+用于学习和实践的游戏服务端项目，使用 Codex 与 Claude Code 协同开发。
+
+## 协作与文档入口
+
+公共开发约定统一维护在 [AGENTS.md](./AGENTS.md)，[CLAUDE.md](./CLAUDE.md) 通过导入复用。
+开发工具选择、IDEA、调试与终端使用见 [开发工具使用指南](./docs/development-tools.md)。
+共享设计位于 `.superpowers/specs/`，实现计划位于 `.superpowers/plans/`，两种工具共同维护；有效项目文档随相关代码一同提交、合并。
 
 ## 当前进度
 

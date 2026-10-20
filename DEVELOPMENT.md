@@ -2,6 +2,8 @@
 
 > 仅服务端开发环境。技术栈版本钉定见 [架构设计](./.superpowers/specs/2026-07-24-server-architecture-design.md) §3.1；本文件是其「装到机器上」的落地清单。当前开发和验证状态见 [PROGRESS.md](./PROGRESS.md)。
 
+协作与文档维护遵循 [AGENTS.md](./AGENTS.md)；CodeGraph、IDEA、编辑、调试和终端工具的使用见 [开发工具使用指南](./docs/development-tools.md)。
+
 ## 一、机器上要装的（Windows 原生）
 
 | # | 软件 | 推荐版本 | 用途 / 备注 |
